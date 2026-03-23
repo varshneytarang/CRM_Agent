@@ -20,15 +20,34 @@ export class MergeProvider implements CrmProvider {
   constructor(private opts: { apiKey: string }) {}
 
   async listDeals(params: { accountToken: string }): Promise<Deal[]> {
-    const res = await axios.get<MergeListResponse<MergeDeal>>(
+    const headers = {
+      Authorization: `Bearer ${this.opts.apiKey}`,
+      "X-Account-Token": params.accountToken,
+    };
+
+    const endpoints = [
+      "https://api.merge.dev/api/crm/v1/opportunities",
       "https://api.merge.dev/api/crm/v1/deals",
-      {
-        headers: {
-          Authorization: `Bearer ${this.opts.apiKey}`,
-          "X-Account-Token": params.accountToken,
-        },
+    ];
+
+    let lastError: unknown;
+    let res: { data: MergeListResponse<MergeDeal> } | undefined;
+
+    for (const url of endpoints) {
+      try {
+        res = await axios.get<MergeListResponse<MergeDeal>>(url, { headers });
+        break;
+      } catch (err: any) {
+        if (err?.response?.status !== 404) {
+          throw err;
+        }
+        lastError = err;
       }
-    );
+    }
+
+    if (!res) {
+      throw lastError ?? new Error("No supported Merge CRM endpoint found");
+    }
 
     return res.data.results.map((d) => ({
       id: d.id,

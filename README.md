@@ -3,7 +3,7 @@
 Monorepo with:
 - `frontend/` — React (Vite) + Tailwind
 - `backend/` — Node.js (Express) + TypeScript (CRM bridge)
-- `agent/` — Python (FastAPI) AI agent (placeholder analysis)
+- `agent/` — Python (Flask) AI agent (placeholder analysis)
 
 ## 1) Backend (Node)
 
@@ -24,13 +24,13 @@ Backend runs on `http://localhost:3001`.
 - `POST /api/merge/account-token` — exchange `public_token` → `account_token` (stored in-memory)
 - `POST /api/analyze-pipeline` — fetch deals from Merge and forward to agent
 
-## 2) Agent (FastAPI)
+## 2) Agent (Flask)
 
 ```bash
 cd agent
 python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
-.\.venv\Scripts\uvicorn main:app --reload --port 8000
+.\.venv\Scripts\python main.py
 ```
 
 Agent runs on `http://localhost:8000`.

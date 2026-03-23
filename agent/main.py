@@ -1,46 +1,45 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Literal, Optional
+from typing import Literal, Optional, TypedDict
 
 from dateutil.parser import isoparse
-from fastapi import FastAPI
-from pydantic import BaseModel
+from flask import Flask, jsonify, request
 
 
-class Deal(BaseModel):
+class Deal(TypedDict):
     id: str
     name: str
-    amount: Optional[float] = None
-    stage: Optional[str] = None
-    last_activity: Optional[str] = None
+    amount: Optional[float]
+    stage: Optional[str]
+    last_activity: Optional[str]
 
 
 RiskLevel = Literal["high", "medium", "low"]
 
 
-class DealRisk(BaseModel):
+class DealRisk(TypedDict):
     deal_id: str
     deal_name: str
-    amount: Optional[float] = None
-    stage: Optional[str] = None
-    last_activity: Optional[str] = None
+    amount: Optional[float]
+    stage: Optional[str]
+    last_activity: Optional[str]
     risk_level: RiskLevel
     signals: list[str]
 
 
-class AnalysisSummary(BaseModel):
+class AnalysisSummary(TypedDict):
     total_deals: int
     high_risk_count: int
 
 
-class PipelineAnalysisReport(BaseModel):
+class PipelineAnalysisReport(TypedDict):
     summary: AnalysisSummary
     high_risk_deals: list[DealRisk]
     all_deals: list[DealRisk]
 
 
-app = FastAPI(title="CRM Agent", version="0.1.0")
+app = Flask(__name__)
 
 
 def _parse_last_activity(last_activity: Optional[str]) -> Optional[datetime]:
@@ -58,7 +57,7 @@ def _parse_last_activity(last_activity: Optional[str]) -> Optional[datetime]:
 def _risk_signals(deal: Deal, now: datetime) -> DealRisk:
     signals: list[str] = []
 
-    last_dt = _parse_last_activity(deal.last_activity)
+    last_dt = _parse_last_activity(deal.get("last_activity"))
     if last_dt is None:
         signals.append("No recorded last activity")
     else:
@@ -68,12 +67,13 @@ def _risk_signals(deal: Deal, now: datetime) -> DealRisk:
         elif days >= 14:
             signals.append(f"Low activity: last touched {days} days ago")
 
-    stage = (deal.stage or "").lower()
+    stage = (deal.get("stage") or "").lower()
     if stage in {"proposal", "negotiation", "contract", "legal"}:
         if last_dt is None or (now - last_dt) >= timedelta(days=14):
             signals.append("Late-stage deal with low activity")
 
-    if deal.amount is not None and deal.amount <= 0:
+    amount = deal.get("amount")
+    if amount is not None and amount <= 0:
         signals.append("Non-positive amount")
 
     # Placeholder for LLM:
@@ -88,30 +88,62 @@ def _risk_signals(deal: Deal, now: datetime) -> DealRisk:
         risk_level = "low"
 
     return DealRisk(
-        deal_id=deal.id,
-        deal_name=deal.name,
-        amount=deal.amount,
-        stage=deal.stage,
-        last_activity=deal.last_activity,
+        deal_id=deal.get("id", ""),
+        deal_name=deal.get("name", ""),
+        amount=amount,
+        stage=deal.get("stage"),
+        last_activity=deal.get("last_activity"),
         risk_level=risk_level,
         signals=signals,
     )
 
 
+def _normalize_deal(raw: dict) -> Deal:
+    amount_value = raw.get("amount")
+    if isinstance(amount_value, (int, float)):
+        amount: Optional[float] = float(amount_value)
+    else:
+        amount = None
+
+    return {
+        "id": str(raw.get("id", "")),
+        "name": str(raw.get("name", "")),
+        "amount": amount,
+        "stage": str(raw["stage"]) if raw.get("stage") is not None else None,
+        "last_activity": str(raw["last_activity"])
+        if raw.get("last_activity") is not None
+        else None,
+    }
+
+
 @app.get("/health")
 def health():
-    return {"ok": True}
+    return jsonify({"ok": True})
 
 
-@app.post("/agent/analyze", response_model=PipelineAnalysisReport)
-def analyze_pipeline(deals: list[Deal]):
+@app.post("/agent/analyze")
+def analyze_pipeline():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, list):
+        return jsonify({"error": "Request body must be a JSON array of deals"}), 400
+
+    deals = [_normalize_deal(item) for item in payload if isinstance(item, dict)]
+
     now = datetime.now(timezone.utc)
 
     risks = [_risk_signals(d, now) for d in deals]
-    high = [r for r in risks if r.risk_level == "high"]
+    high = [r for r in risks if r["risk_level"] == "high"]
 
-    return PipelineAnalysisReport(
-        summary=AnalysisSummary(total_deals=len(deals), high_risk_count=len(high)),
-        high_risk_deals=high,
-        all_deals=risks,
-    )
+    report: PipelineAnalysisReport = {
+        "summary": {
+            "total_deals": len(deals),
+            "high_risk_count": len(high),
+        },
+        "high_risk_deals": high,
+        "all_deals": risks,
+    }
+    return jsonify(report)
+
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=8000, debug=True)
