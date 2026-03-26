@@ -1,10 +1,19 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Literal, Optional, TypedDict
 
 from dateutil.parser import isoparse
+from dotenv import load_dotenv
 from flask import Flask, jsonify, request
+
+from real_time_deal_strategist import register_routes
+
+
+# Load agent/.env for local development (works regardless of CWD)
+_ENV_PATH = Path(__file__).with_name(".env")
+load_dotenv(dotenv_path=_ENV_PATH)
 
 
 class Deal(TypedDict):
@@ -40,6 +49,7 @@ class PipelineAnalysisReport(TypedDict):
 
 
 app = Flask(__name__)
+register_routes(app)
 
 
 def _parse_last_activity(last_activity: Optional[str]) -> Optional[datetime]:
