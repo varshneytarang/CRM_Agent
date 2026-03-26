@@ -143,58 +143,48 @@ interface JWTPayload {
   exp?: number;
 }
 
-const JWT_EXPIRY = 24 * 60 * 60; // 24 hours in seconds
+const ACCESS_TOKEN_EXPIRY_SECONDS = Number(process.env.JWT_ACCESS_EXPIRY_SECONDS ?? 15 * 60);
+const REFRESH_TOKEN_EXPIRY_SECONDS = Number(process.env.JWT_REFRESH_EXPIRY_SECONDS ?? 7 * 24 * 60 * 60);
 
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
-  if (!secret || !secret.trim()) {
-    throw new Error(
-      "JWT_SECRET environment variable not set. Ensure backend/.env exists and you start the server from the backend folder (or set JWT_SECRET in the environment)."
-    );
+  if (!secret) {
+    throw new Error("JWT_SECRET environment variable not set");
   }
   return secret;
 }
 
-/**
- * Create a signed JWT token
- */
-export function createJWT(payload: JWTPayload): string {
-  const JWT_SECRET = getJwtSecret();
+function getRefreshJwtSecret(): string {
+  return process.env.JWT_REFRESH_SECRET || getJwtSecret();
+}
 
+function signJwt(payload: JWTPayload, secret: string, expirySeconds: number): string {
   const now = Math.floor(Date.now() / 1000);
   const tokenPayload = {
     ...payload,
     iat: now,
-    exp: now + JWT_EXPIRY,
+    exp: now + expirySeconds,
   };
 
-  // Create header.payload.signature
   const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
   const body = Buffer.from(JSON.stringify(tokenPayload)).toString("base64url");
-
   const signature = crypto
-    .createHmac("sha256", JWT_SECRET)
+    .createHmac("sha256", secret)
     .update(`${header}.${body}`)
     .digest("base64url");
 
   return `${header}.${body}.${signature}`;
 }
 
-/**
- * Verify and decode a JWT token
- */
-export function verifyJWT(token: string): JWTPayload | null {
+function verifySignedJwt(token: string, secret: string): JWTPayload | null {
   try {
-    const JWT_SECRET = getJwtSecret();
-
     const [headerB64, bodyB64, signatureB64] = token.split(".");
     if (!headerB64 || !bodyB64 || !signatureB64) {
       throw new Error("Invalid token format");
     }
 
-    // Verify signature
     const expectedSignature = crypto
-      .createHmac("sha256", JWT_SECRET)
+      .createHmac("sha256", secret)
       .update(`${headerB64}.${bodyB64}`)
       .digest("base64url");
 
@@ -202,11 +192,9 @@ export function verifyJWT(token: string): JWTPayload | null {
       throw new Error("Invalid token signature");
     }
 
-    // Decode payload
     const payload = JSON.parse(Buffer.from(bodyB64, "base64url").toString());
-
-    // Check expiry
     const now = Math.floor(Date.now() / 1000);
+
     if (payload.exp && payload.exp < now) {
       throw new Error("Token expired");
     }
@@ -216,4 +204,32 @@ export function verifyJWT(token: string): JWTPayload | null {
     console.error("JWT verification failed:", err);
     return null;
   }
+}
+
+/**
+ * Create a signed JWT token
+ */
+export function createJWT(payload: JWTPayload): string {
+  return signJwt(payload, getJwtSecret(), ACCESS_TOKEN_EXPIRY_SECONDS);
+}
+
+/**
+ * Verify and decode a JWT token
+ */
+export function verifyJWT(token: string): JWTPayload | null {
+  return verifySignedJwt(token, getJwtSecret());
+}
+
+/**
+ * Create a long-lived refresh token.
+ */
+export function createRefreshJWT(payload: JWTPayload): string {
+  return signJwt(payload, getRefreshJwtSecret(), REFRESH_TOKEN_EXPIRY_SECONDS);
+}
+
+/**
+ * Verify and decode a refresh token.
+ */
+export function verifyRefreshJWT(token: string): JWTPayload | null {
+  return verifySignedJwt(token, getRefreshJwtSecret());
 }

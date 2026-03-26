@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMergeLink } from "@mergeapi/react-merge-link";
 import { Link } from "react-router-dom";
 import { api } from "../api";
@@ -30,13 +30,9 @@ function normalizeDashboardData(raw: any): UnifiedDashboardResponse {
   };
 }
 
-function renderCompactTable(
-  title: string,
-  records: CrmRecord[],
-  options?: { showAmount?: boolean; showContact?: boolean }
-) {
+function renderCompactTable(title: string, records: CrmRecord[], options?: { showAmount?: boolean; showContact?: boolean }) {
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-4">
+    <div className="rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-sm">
       <div className="flex items-center justify-between">
         <h2 className="text-base font-semibold text-slate-900">{title}</h2>
         <span className="text-xs text-slate-500">{records.length} records</span>
@@ -77,54 +73,71 @@ function renderCompactTable(
 
 export function PipelineDashboard() {
   const { user } = useAuth();
-  const endUserOriginId = user?.userid ?? "";
   const [linkToken, setLinkToken] = useState<string>("");
-  const [accountToken, setAccountToken] = useState<string | null>(null);
+  const [pendingOriginId, setPendingOriginId] = useState<string | null>(null);
+  const [openWhenReady, setOpenWhenReady] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<"checking" | "connected" | "not_connected">("checking");
   const [dashboardData, setDashboardData] = useState<UnifiedDashboardResponse | null>(null);
   const [report, setReport] = useState<PipelineAnalysisReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const endUserOriginId = user?.userid ?? "";
+
+  const checkConnectionStatus = useCallback(async () => {
+    try {
+      const res = await api.get<{ connected: boolean }>("/api/merge/status");
+      setConnectionStatus(res.data.connected ? "connected" : "not_connected");
+      return res.data.connected;
+    } catch {
+      setConnectionStatus("not_connected");
+      return false;
+    }
+  }, []);
+
   const createLinkToken = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      if (!endUserOriginId) {
+      if (!user) {
         throw new Error("User not loaded yet");
       }
       const res = await api.post("/api/merge/link-token", {
-        end_user_origin_id: endUserOriginId,
-        end_user_organization_name: "Demo Org",
-        end_user_email_address: "demo@example.com",
+        end_user_origin_id: user.userid,
+        end_user_organization_name: user.org_name ?? user.username,
+        end_user_email_address: user.email ?? "demo@example.com",
       });
       setLinkToken(res.data.link_token);
+      setPendingOriginId(res.data.end_user_origin_id ?? user.userid);
+      setOpenWhenReady(true);
     } catch (e: any) {
       setError(e?.response?.data?.error ?? e?.message ?? "Failed to create link token");
     } finally {
       setBusy(false);
     }
-  }, [endUserOriginId]);
+  }, [user]);
 
   const onSuccess = useCallback(
     async (public_token: string) => {
       setBusy(true);
       setError(null);
       try {
-        if (!endUserOriginId) {
-          throw new Error("User not loaded yet");
-        }
         const res = await api.post("/api/merge/account-token", {
           public_token,
-          end_user_origin_id: endUserOriginId,
+          end_user_origin_id: pendingOriginId ?? user?.userid,
         });
-        setAccountToken(res.data.account_token);
+        if (!res.data?.account_token) {
+          throw new Error("Merge did not return account_token");
+        }
+        setConnectionStatus("connected");
+        await fetchUnifiedDashboard();
       } catch (e: any) {
         setError(e?.response?.data?.error ?? e?.message ?? "Failed to exchange account token");
       } finally {
         setBusy(false);
       }
     },
-    [endUserOriginId]
+    [pendingOriginId, user?.userid]
   );
 
   const { open, isReady } = useMergeLink(
@@ -137,19 +150,21 @@ export function PipelineDashboard() {
     )
   );
 
+  useEffect(() => {
+    if (!openWhenReady || !isReady || !linkToken) {
+      return;
+    }
+    open();
+    setOpenWhenReady(false);
+  }, [openWhenReady, isReady, linkToken, open]);
+
   const analyze = useCallback(async () => {
     setBusy(true);
     setError(null);
     setReport(null);
     try {
-      if (!endUserOriginId) {
-        throw new Error("User not loaded yet");
-      }
-      const res = await api.post<PipelineAnalysisReport>("/api/analyze-pipeline", {
-        end_user_origin_id: endUserOriginId,
-      });
+      const res = await api.post<PipelineAnalysisReport>("/api/analyze-pipeline", {});
       setReport(res.data);
-      console.log("Pipeline analysis report:", res.data);
     } catch (e: any) {
       const status = e?.response?.status;
       const backendError = e?.response?.data?.error;
@@ -158,24 +173,18 @@ export function PipelineDashboard() {
           e?.message ||
           (status ? `Analyze failed (${status})` : "Failed to analyze pipeline")
       );
-      console.error("Failed to analyze pipeline", e);
     } finally {
       setBusy(false);
     }
-  }, [endUserOriginId]);
+  }, []);
 
   const fetchUnifiedDashboard = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      if (!endUserOriginId) {
-        throw new Error("User not loaded yet");
-      }
-      const res = await api.post<UnifiedDashboardResponse>("/api/hubspot/unified-dashboard", {
-        end_user_origin_id: endUserOriginId,
-      });
-      console.log("Fetched unified dashboard data:", res.data);
+      const res = await api.post<UnifiedDashboardResponse>("/api/hubspot/unified-dashboard", {});
       setDashboardData(normalizeDashboardData(res.data));
+      setConnectionStatus("connected");
     } catch (e: any) {
       const status = e?.response?.status;
       const backendError = e?.response?.data?.error;
@@ -184,81 +193,135 @@ export function PipelineDashboard() {
           e?.message ||
           (status ? `Fetch failed (${status})` : "Failed to fetch HubSpot data")
       );
+      if ((backendError ?? "").toLowerCase().includes("no account_token stored")) {
+        setConnectionStatus("not_connected");
+        setDashboardData(null);
+      }
     } finally {
       setBusy(false);
     }
-  }, [endUserOriginId]);
+  }, []);
+
+  useEffect(() => {
+    if (!endUserOriginId) {
+      return;
+    }
+
+    const bootstrap = async () => {
+      const connected = await checkConnectionStatus();
+      if (connected) {
+        await fetchUnifiedDashboard();
+      }
+    };
+
+    void bootstrap();
+  }, [endUserOriginId, checkConnectionStatus, fetchUnifiedDashboard]);
+
+  const summary = dashboardData?.summary;
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="mx-auto max-w-6xl px-6 py-10">
-        <div className="mb-5">
-          <Link to="/" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#dbeafe_0%,_#eef2ff_40%,_#f8fafc_100%)] text-slate-900">
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-6 flex items-center justify-between">
+          <Link to="/" className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
             Back to Home
           </Link>
+          <span className="text-sm text-slate-600">Signed in as {user?.username ?? "user"}</span>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-semibold">HubSpot Unified Dashboard</h1>
-          <p className="text-sm text-gray-600">
-            Connect HubSpot, fetch normalized CRM data, and run pipeline analysis from this page.
+        <div className="rounded-3xl border border-sky-200 bg-gradient-to-r from-sky-600 via-indigo-600 to-blue-700 px-6 py-8 text-white shadow-lg">
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Revenue Command Center</h1>
+          <p className="mt-2 max-w-3xl text-sm text-sky-100 sm:text-base">
+            Persistent CRM connection, live entity coverage, and one-click pipeline risk analysis.
           </p>
         </div>
 
-        <div className="mt-6 rounded-lg border border-gray-200 bg-white p-4">
-          <label className="block text-sm font-medium text-gray-700">User</label>
-          <div className="mt-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800">
-            {endUserOriginId || "Loading user..."}
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              onClick={createLinkToken}
-              disabled={busy || !endUserOriginId}
-              className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              1) Get link token
-            </button>
-            <button
-              onClick={open}
-              disabled={!isReady || !linkToken || busy || !endUserOriginId}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              2) Connect HubSpot
-            </button>
-            <button
-              onClick={fetchUnifiedDashboard}
-              disabled={!accountToken || busy}
-              className="rounded-md bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              3) Fetch unified data
-            </button>
-            <button
-              onClick={analyze}
-              disabled={!dashboardData || busy}
-              className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              4) Analyze pipeline
-            </button>
-          </div>
-
-          <div className="mt-4 text-xs text-gray-600">
-            <div>Link token: {linkToken ? "ready" : "not created"}</div>
-            <div>Account token: {accountToken ? "stored (in-memory)" : "not stored"}</div>
-          </div>
-
-          {error ? (
-            <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-              {error}
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:col-span-1">
+            <div className="text-xs uppercase tracking-wide text-slate-500">CRM Connection</div>
+            <div className="mt-2 flex items-center gap-2">
+              <span
+                className={`inline-flex h-2.5 w-2.5 rounded-full ${
+                  connectionStatus === "connected"
+                    ? "bg-emerald-500"
+                    : connectionStatus === "checking"
+                      ? "bg-amber-500"
+                      : "bg-rose-500"
+                }`}
+              />
+              <span className="text-sm font-medium text-slate-800">
+                {connectionStatus === "connected"
+                  ? "Connected"
+                  : connectionStatus === "checking"
+                    ? "Checking connection"
+                    : "Not connected"}
+              </span>
             </div>
-          ) : null}
+            <p className="mt-2 text-xs text-slate-500">User ID: {endUserOriginId || "Loading..."}</p>
+
+            <div className="mt-4 grid gap-2">
+              <button
+                onClick={createLinkToken}
+                disabled={busy || !endUserOriginId}
+                className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {connectionStatus === "connected" ? "Reconnect CRM" : "Connect CRM"}
+              </button>
+              <button
+                onClick={fetchUnifiedDashboard}
+                disabled={busy || connectionStatus !== "connected"}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Refresh Data
+              </button>
+              <button
+                onClick={analyze}
+                disabled={busy || !dashboardData}
+                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Analyze Pipeline
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:col-span-2">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { label: "Deals", value: summary?.total_deals ?? 0 },
+                { label: "Opportunities", value: summary?.total_opportunities ?? 0 },
+                { label: "Contacts", value: summary?.total_contacts ?? 0 },
+                { label: "Companies", value: summary?.total_companies ?? 0 },
+                { label: "Engagements", value: summary?.total_engagements ?? 0 },
+                { label: "Stale Deals", value: summary?.stale_deals ?? 0 },
+                { label: "Total Amount", value: (summary?.total_amount ?? 0).toLocaleString() },
+                { label: "Data Sync", value: dashboardData ? new Date(dashboardData.fetched_at).toLocaleTimeString() : "-" },
+              ].map((item) => (
+                <div key={item.label} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">{item.label}</div>
+                  <div className="mt-1 text-xl font-semibold text-slate-900">{item.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
+
+        {!isReady && linkToken ? (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Merge connector is preparing. If it does not open automatically, click connect again.
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            {error}
+          </div>
+        ) : null}
 
         {dashboardData ? (
           <div className="mt-6 space-y-4">
             {dashboardData.warnings.length > 0 ? (
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                <div className="font-semibold">Some CRM resources could not be fetched</div>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <div className="font-semibold">Partial Data Warnings</div>
                 <ul className="mt-2 list-disc pl-5">
                   {dashboardData.warnings.map((warning, idx) => (
                     <li key={idx}>{warning}</li>
@@ -267,91 +330,60 @@ export function PipelineDashboard() {
               </div>
             ) : null}
 
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="rounded-md border border-slate-200 bg-white p-4">
-                <div className="text-xs uppercase tracking-wide text-slate-500">Deals</div>
-                <div className="mt-2 text-2xl font-semibold text-slate-900">
-                  {dashboardData.summary.total_deals}
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:col-span-2">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-slate-900">Deals</h2>
+                  <span className="text-xs text-slate-500">{dashboardData.deals.length} records</span>
                 </div>
-              </div>
-              <div className="rounded-md border border-slate-200 bg-white p-4">
-                <div className="text-xs uppercase tracking-wide text-slate-500">Opportunities</div>
-                <div className="mt-2 text-2xl font-semibold text-slate-900">
-                  {dashboardData.summary.total_opportunities}
-                </div>
-              </div>
-              <div className="rounded-md border border-slate-200 bg-white p-4">
-                <div className="text-xs uppercase tracking-wide text-slate-500">Contacts</div>
-                <div className="mt-2 text-2xl font-semibold text-slate-900">
-                  {dashboardData.summary.total_contacts}
-                </div>
-              </div>
-              <div className="rounded-md border border-slate-200 bg-white p-4">
-                <div className="text-xs uppercase tracking-wide text-slate-500">Companies</div>
-                <div className="mt-2 text-2xl font-semibold text-slate-900">
-                  {dashboardData.summary.total_companies}
-                </div>
-              </div>
-              <div className="rounded-md border border-slate-200 bg-white p-4">
-                <div className="text-xs uppercase tracking-wide text-slate-500">Engagements</div>
-                <div className="mt-2 text-2xl font-semibold text-slate-900">
-                  {dashboardData.summary.total_engagements}
-                </div>
-              </div>
-              <div className="rounded-md border border-slate-200 bg-white p-4">
-                <div className="text-xs uppercase tracking-wide text-slate-500">Total Amount</div>
-                <div className="mt-2 text-2xl font-semibold text-slate-900">
-                  {dashboardData.summary.total_amount.toLocaleString()}
-                </div>
-              </div>
-              <div className="rounded-md border border-slate-200 bg-white p-4">
-                <div className="text-xs uppercase tracking-wide text-slate-500">Stale Deals</div>
-                <div className="mt-2 text-2xl font-semibold text-slate-900">
-                  {dashboardData.summary.stale_deals}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-md border border-slate-200 bg-white p-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-slate-900">Fetched HubSpot Deals</h2>
-                <span className="text-xs text-slate-500">
-                  Synced: {new Date(dashboardData.fetched_at).toLocaleString()}
-                </span>
-              </div>
-              <div className="mt-4 overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-200 text-sm">
-                  <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                      <th className="px-2 py-2">Deal</th>
-                      <th className="px-2 py-2">Amount</th>
-                      <th className="px-2 py-2">Stage</th>
-                      <th className="px-2 py-2">Last Activity</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-700">
-                    {dashboardData.deals.map((deal) => (
-                      <tr key={deal.id}>
-                        <td className="px-2 py-2">{deal.name || deal.id}</td>
-                        <td className="px-2 py-2">{deal.amount ?? "-"}</td>
-                        <td className="px-2 py-2">{deal.stage ?? "-"}</td>
-                        <td className="px-2 py-2">{deal.last_activity ?? "-"}</td>
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full divide-y divide-slate-200 text-sm">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th className="px-2 py-2">Deal</th>
+                        <th className="px-2 py-2">Amount</th>
+                        <th className="px-2 py-2">Stage</th>
+                        <th className="px-2 py-2">Last Activity</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {dashboardData.deals.map((deal) => (
+                        <tr key={deal.id}>
+                          <td className="px-2 py-2">{deal.name || deal.id}</td>
+                          <td className="px-2 py-2">{deal.amount ?? "-"}</td>
+                          <td className="px-2 py-2">{deal.stage ?? "-"}</td>
+                          <td className="px-2 py-2">{deal.last_activity ?? "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
 
-            {renderCompactTable("Opportunities", dashboardData.opportunities, { showAmount: true })}
-            {renderCompactTable("Contacts", dashboardData.contacts, { showContact: true })}
-            {renderCompactTable("Companies", dashboardData.companies, { showContact: true })}
-            {renderCompactTable("Engagements", dashboardData.engagements)}
+              {renderCompactTable("Opportunities", dashboardData.opportunities, { showAmount: true })}
+              {renderCompactTable("Contacts", dashboardData.contacts, { showContact: true })}
+              {renderCompactTable("Companies", dashboardData.companies, { showContact: true })}
+              {renderCompactTable("Engagements", dashboardData.engagements)}
+            </div>
+          </div>
+        ) : connectionStatus === "not_connected" ? (
+          <div className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-white/80 px-6 py-10 text-center shadow-sm">
+            <h2 className="text-xl font-semibold text-slate-900">Connect CRM to Start</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Your connection is persisted once completed. You should not need to reconnect every session.
+            </p>
+            <button
+              onClick={createLinkToken}
+              disabled={busy || !endUserOriginId}
+              className="mt-5 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Connect CRM Now
+            </button>
           </div>
         ) : null}
 
         {report ? (
-          <div className="mt-6">
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Risk Signals</h2>
               <div className="text-sm text-gray-600">
@@ -360,22 +392,17 @@ export function PipelineDashboard() {
             </div>
 
             {report.high_risk_deals.length === 0 ? (
-              <div className="mt-4 rounded-md border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700">
+              <div className="mt-4 rounded-md border border-gray-200 bg-slate-50 px-4 py-3 text-sm text-gray-700">
                 No high-risk deals detected.
               </div>
             ) : (
               <div className="mt-4 grid gap-3">
                 {report.high_risk_deals.map((d) => (
-                  <div
-                    key={d.deal_id}
-                    className="rounded-md border border-red-200 bg-red-50 px-4 py-3"
-                  >
+                  <div key={d.deal_id} className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
                     <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="text-sm font-semibold text-red-900">
-                        {d.deal_name || d.deal_id}
-                      </div>
+                      <div className="text-sm font-semibold text-red-900">{d.deal_name || d.deal_id}</div>
                       <div className="text-xs text-red-900/80">
-                        Stage: {d.stage ?? "—"} · Amount: {d.amount ?? "—"}
+                        Stage: {d.stage ?? "-"} · Amount: {d.amount ?? "-"}
                       </div>
                     </div>
                     <div className="mt-2 text-sm text-red-900">

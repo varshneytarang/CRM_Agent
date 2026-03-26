@@ -1,14 +1,50 @@
-import type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import { Router } from "express";
 import { registerUser, authenticateUser, getUserById, updateUserProfile } from "../db/repositories/authRepository";
-import { createJWT, verifyJWT } from "../security/auth";
+import { createJWT, createRefreshJWT, verifyJWT, verifyRefreshJWT } from "../security/auth";
 
 export const authRouter = Router();
+const REFRESH_COOKIE_NAME = "crm_refresh_token";
+
+function parseCookie(header: string | undefined, key: string): string | null {
+  if (!header) {
+    return null;
+  }
+
+  const entries = header.split(";");
+  for (const entry of entries) {
+    const [rawName, ...rawValue] = entry.trim().split("=");
+    if (rawName === key) {
+      return decodeURIComponent(rawValue.join("="));
+    }
+  }
+
+  return null;
+}
+
+function setRefreshCookie(res: Response, refreshToken: string) {
+  res.cookie(REFRESH_COOKIE_NAME, refreshToken, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: Number(process.env.JWT_REFRESH_EXPIRY_SECONDS ?? 7 * 24 * 60 * 60) * 1000,
+    path: "/",
+  });
+}
+
+function clearRefreshCookie(res: Response) {
+  res.clearCookie(REFRESH_COOKIE_NAME, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+  });
+}
 
 /**
  * Middleware to verify JWT token
  */
-export function requireAuth(req: Request, res: Response, next: Function) {
+export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Missing or invalid authorization header" });
@@ -59,6 +95,11 @@ authRouter.post("/register", async (req: Request, res: Response) => {
       userid: user.userid,
       username: user.username,
     });
+    const refreshToken = createRefreshJWT({
+      userid: user.userid,
+      username: user.username,
+    });
+    setRefreshCookie(res, refreshToken);
 
     return res.status(201).json({
       user,
@@ -97,6 +138,11 @@ authRouter.post("/login", async (req: Request, res: Response) => {
       userid: user.userid,
       username: user.username,
     });
+    const refreshToken = createRefreshJWT({
+      userid: user.userid,
+      username: user.username,
+    });
+    setRefreshCookie(res, refreshToken);
 
     return res.json({
       user,
@@ -105,6 +151,50 @@ authRouter.post("/login", async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error("Login error:", err);
     return res.status(500).json({ error: "Login failed" });
+  }
+});
+
+/**
+ * POST /auth/refresh
+ * Exchange valid refresh cookie for a new access token
+ */
+authRouter.post("/refresh", async (req: Request, res: Response) => {
+  try {
+    const refreshToken = parseCookie(req.headers.cookie, REFRESH_COOKIE_NAME);
+    if (!refreshToken) {
+      return res.status(401).json({ error: "Missing refresh token" });
+    }
+
+    const payload = verifyRefreshJWT(refreshToken);
+    if (!payload) {
+      clearRefreshCookie(res);
+      return res.status(401).json({ error: "Invalid or expired refresh token" });
+    }
+
+    const user = await getUserById(payload.userid);
+    if (!user) {
+      clearRefreshCookie(res);
+      return res.status(401).json({ error: "User not found" });
+    }
+
+    const nextAccessToken = createJWT({
+      userid: user.userid,
+      username: user.username,
+    });
+    const nextRefreshToken = createRefreshJWT({
+      userid: user.userid,
+      username: user.username,
+    });
+
+    setRefreshCookie(res, nextRefreshToken);
+
+    return res.json({
+      user,
+      token: nextAccessToken,
+    });
+  } catch (err) {
+    console.error("Refresh error:", err);
+    return res.status(500).json({ error: "Failed to refresh session" });
   }
 });
 
@@ -149,9 +239,9 @@ authRouter.put("/profile", requireAuth, async (req: Request, res: Response) => {
 
 /**
  * POST /auth/logout
- * Logout user (client-side token deletion)
+ * Logout user and clear refresh token cookie
  */
 authRouter.post("/logout", (_req: Request, res: Response) => {
-  // JWT is stateless, so logout just means client deletes the token
-  return res.json({ message: "Logout successful. Please delete your token on the client side." });
+  clearRefreshCookie(res);
+  return res.json({ message: "Logout successful" });
 });

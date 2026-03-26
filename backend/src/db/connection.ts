@@ -37,7 +37,7 @@ export function getPool(): Pool {
   return pool;
 }
 
-export async function query<T extends QueryResultRow = any>(
+export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: any[]
 ): Promise<QueryResult<T>> {
@@ -45,7 +45,7 @@ export async function query<T extends QueryResultRow = any>(
   return generatedPool.query<T>(text, params);
 }
 
-export async function queryOne<T extends QueryResultRow = any>(
+export async function queryOne<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: any[]
 ): Promise<T | null> {
@@ -53,7 +53,7 @@ export async function queryOne<T extends QueryResultRow = any>(
   return result.rows[0] ?? null;
 }
 
-export async function queryAll<T extends QueryResultRow = any>(
+export async function queryAll<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: any[]
 ): Promise<T[]> {
