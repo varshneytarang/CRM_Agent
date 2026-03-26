@@ -3,6 +3,7 @@ import { useMergeLink } from "@mergeapi/react-merge-link";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
+import { ProspectingChatDock } from "./ProspectingChatDock";
 import type { PipelineAnalysisReport } from "../contracts/report";
 import type { CrmRecord, UnifiedDashboardResponse } from "../contracts/unifiedDashboard";
 
@@ -420,6 +421,14 @@ export function PipelineDashboard() {
           </div>
         ) : null}
       </div>
+      <ProspectingChatDock
+        userId={endUserOriginId}
+        leadContext={{
+          crm_connected: connectionStatus === "connected",
+          deal_count: dashboardData?.deals?.length ?? 0,
+          stale_deals: dashboardData?.summary?.stale_deals ?? 0,
+        }}
+      />
     </div>
   );
 }

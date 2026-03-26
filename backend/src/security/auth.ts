@@ -195,13 +195,17 @@ function verifySignedJwt(token: string, secret: string): JWTPayload | null {
     const payload = JSON.parse(Buffer.from(bodyB64, "base64url").toString());
     const now = Math.floor(Date.now() / 1000);
 
-    if (payload.exp && payload.exp < now) {
+    if (payload.exp && payload.exp <= now) {
       throw new Error("Token expired");
     }
 
     return payload as JWTPayload;
   } catch (err) {
-    console.error("JWT verification failed:", err);
+    // Expected failures (expired/invalid tokens) are common in dev due to stale clients.
+    // Keep logs quiet unless explicitly enabled.
+    if (String(process.env.JWT_DEBUG_LOGS ?? "false").toLowerCase() === "true") {
+      console.warn("JWT verification failed:", err instanceof Error ? err.message : String(err));
+    }
     return null;
   }
 }

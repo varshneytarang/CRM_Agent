@@ -1,148 +1,179 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from typing import Literal, Optional, TypedDict
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
-from dateutil.parser import isoparse
+from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 
+# Load .env from parent directory (CRM_Agent root)
+load_dotenv(Path(__file__).parent.parent / ".env")
 
-class Deal(TypedDict):
-    id: str
-    name: str
-    amount: Optional[float]
-    stage: Optional[str]
-    last_activity: Optional[str]
-
-
-RiskLevel = Literal["high", "medium", "low"]
-
-
-class DealRisk(TypedDict):
-    deal_id: str
-    deal_name: str
-    amount: Optional[float]
-    stage: Optional[str]
-    last_activity: Optional[str]
-    risk_level: RiskLevel
-    signals: list[str]
-
-
-class AnalysisSummary(TypedDict):
-    total_deals: int
-    high_risk_count: int
-
-
-class PipelineAnalysisReport(TypedDict):
-    summary: AnalysisSummary
-    high_risk_deals: list[DealRisk]
-    all_deals: list[DealRisk]
+from agents.engagement_adaptation.node import run_engagement_adaptation
+from agents.fit_scoring.node import run_fit_scoring
+from agents.personalization.node import run_personalization
+from agents.qa_compliance.node import run_qa_compliance
+from agents.research_brief.node import run_research_brief
+from agents.target_discovery.node import run_target_discovery
+from common.groq_client import GroqClient
+from common.schemas import ProspectingRequest, ProspectingResponse
+from graph.state import ProspectingState
+from graph.workflow import build_graph
 
 
 app = Flask(__name__)
+workflow = build_graph()
 
 
-def _parse_last_activity(last_activity: Optional[str]) -> Optional[datetime]:
-    if not last_activity:
-        return None
-    try:
-        dt = isoparse(last_activity)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
-    except Exception:
-        return None
-
-
-def _risk_signals(deal: Deal, now: datetime) -> DealRisk:
-    signals: list[str] = []
-
-    last_dt = _parse_last_activity(deal.get("last_activity"))
-    if last_dt is None:
-        signals.append("No recorded last activity")
-    else:
-        days = (now - last_dt).days
-        if days >= 21:
-            signals.append(f"No activity for {days} days")
-        elif days >= 14:
-            signals.append(f"Low activity: last touched {days} days ago")
-
-    stage = (deal.get("stage") or "").lower()
-    if stage in {"proposal", "negotiation", "contract", "legal"}:
-        if last_dt is None or (now - last_dt) >= timedelta(days=14):
-            signals.append("Late-stage deal with low activity")
-
-    amount = deal.get("amount")
-    if amount is not None and amount <= 0:
-        signals.append("Non-positive amount")
-
-    # Placeholder for LLM:
-    # Here you would call an LLM (e.g., OpenAI) with the deals context and return
-    # structured signals. This deterministic logic keeps the API stable for now.
-
-    if any(s.startswith("No activity for") for s in signals) or "Late-stage deal with low activity" in signals:
-        risk_level: RiskLevel = "high"
-    elif len(signals) >= 1:
-        risk_level = "medium"
-    else:
-        risk_level = "low"
-
-    return DealRisk(
-        deal_id=deal.get("id", ""),
-        deal_name=deal.get("name", ""),
-        amount=amount,
-        stage=deal.get("stage"),
-        last_activity=deal.get("last_activity"),
-        risk_level=risk_level,
-        signals=signals,
-    )
-
-
-def _normalize_deal(raw: dict) -> Deal:
-    amount_value = raw.get("amount")
-    if isinstance(amount_value, (int, float)):
-        amount: Optional[float] = float(amount_value)
-    else:
-        amount = None
-
-    return {
-        "id": str(raw.get("id", "")),
-        "name": str(raw.get("name", "")),
-        "amount": amount,
-        "stage": str(raw["stage"]) if raw.get("stage") is not None else None,
-        "last_activity": str(raw["last_activity"])
-        if raw.get("last_activity") is not None
-        else None,
+def _state_from_request(payload: ProspectingRequest) -> ProspectingState:
+    state: ProspectingState = {
+        "userid": payload.userid,
+        "context": payload.context,
+        "trace": [],
     }
+    if payload.lead:
+        state["lead"] = payload.lead
+    if payload.leads:
+        state["leads"] = payload.leads
+    if payload.engagement_signal:
+        state.setdefault("context", {})["engagement_signal"] = payload.engagement_signal
+    return state
+
+
+def _response(action: str, state: ProspectingState, success: bool = True, error: str | None = None):
+    body = ProspectingResponse(
+        success=success,
+        action=action,
+        data={
+            "fit_score": state.get("fit_score"),
+            "research_brief": state.get("research_brief"),
+            "sequence": state.get("sequence"),
+            "adaptation": state.get("adaptation"),
+            "qa": state.get("qa"),
+            "leads": [lead.model_dump() for lead in state.get("leads", [])],
+        },
+        trace={
+            "steps": state.get("trace", []),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+        error=error,
+    )
+    return jsonify(body.model_dump())
 
 
 @app.get("/health")
 def health():
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "service": "agent-runtime"})
+
+
+@app.post("/agent/run")
+def run_agent_flow():
+    try:
+        payload = ProspectingRequest.model_validate(request.get_json(silent=True) or {})
+        state = _state_from_request(payload)
+
+        if payload.action == "run_full_flow":
+            final_state = workflow.invoke(state)
+            return _response(payload.action, final_state)
+
+        run_map: dict[str, Any] = {
+            "target_discovery": run_target_discovery,
+            "fit_scoring": run_fit_scoring,
+            "research_brief": run_research_brief,
+            "personalization": run_personalization,
+            "engagement_adaptation": run_engagement_adaptation,
+            "qa_compliance": run_qa_compliance,
+        }
+
+        fn = run_map.get(payload.action)
+        if not fn:
+            return _response(payload.action, state, success=False, error=f"Unsupported action: {payload.action}"), 400
+
+        result_state = fn(state)
+        if result_state.get("error"):
+            return _response(payload.action, result_state, success=False, error=str(result_state["error"])), 400
+
+        return _response(payload.action, result_state)
+    except Exception as err:  # noqa: BLE001
+        return jsonify({"success": False, "error": str(err)}), 500
+
+
+@app.post("/agent/chat")
+def chat():
+    payload = request.get_json(silent=True) or {}
+    message = str(payload.get("message", "")).strip()
+    context = payload.get("context", {})
+    if not message:
+        return jsonify({"success": False, "error": "message is required"}), 400
+
+    try:
+        client = GroqClient()
+        raw = client.call_fast(
+            [
+                {
+                    "role": "system",
+                    "content": "You are a sales prospecting copilot. Keep responses concise and action-oriented.",
+                },
+                {
+                    "role": "user",
+                    "content": f"Message: {message}\\nContext: {context}",
+                },
+            ],
+            temperature=0.2,
+        )
+        return jsonify({"success": True, "reply": raw})
+    except Exception as err:  # noqa: BLE001
+        return jsonify({"success": False, "error": str(err)}), 500
 
 
 @app.post("/agent/analyze")
-def analyze_pipeline():
+def analyze_pipeline_compat():
     payload = request.get_json(silent=True)
     if not isinstance(payload, list):
         return jsonify({"error": "Request body must be a JSON array of deals"}), 400
 
-    deals = [_normalize_deal(item) for item in payload if isinstance(item, dict)]
+    all_deals: list[dict[str, Any]] = []
+    high_risk: list[dict[str, Any]] = []
 
-    now = datetime.now(timezone.utc)
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        stage = str(item.get("stage") or "").lower()
+        last_activity = str(item.get("last_activity") or "")
+        stale = not last_activity
+        late_stage = stage in {"proposal", "negotiation", "contract", "legal"}
+        signals: list[str] = []
+        if stale:
+            signals.append("No recorded last activity")
+        if late_stage and stale:
+            signals.append("Late-stage deal with low activity")
 
-    risks = [_risk_signals(d, now) for d in deals]
-    high = [r for r in risks if r["risk_level"] == "high"]
+        level = "high" if signals else "low"
+        result = {
+            "deal_id": str(item.get("id") or ""),
+            "deal_name": str(item.get("name") or ""),
+            "amount": item.get("amount"),
+            "stage": item.get("stage"),
+            "last_activity": item.get("last_activity"),
+            "risk_level": level,
+            "signals": signals,
+        }
+        all_deals.append(result)
+        if level == "high":
+            high_risk.append(result)
 
-    report: PipelineAnalysisReport = {
-        "summary": {
-            "total_deals": len(deals),
-            "high_risk_count": len(high),
-        },
-        "high_risk_deals": high,
-        "all_deals": risks,
-    }
-    return jsonify(report)
+    return jsonify(
+        {
+            "summary": {
+                "total_deals": len(all_deals),
+                "high_risk_count": len(high_risk),
+            },
+            "high_risk_deals": high_risk,
+            "all_deals": all_deals,
+        }
+    )
 
 
 if __name__ == "__main__":
