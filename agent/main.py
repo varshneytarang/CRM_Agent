@@ -11,12 +11,12 @@ from flask import Flask, jsonify, request
 # Load .env from parent directory (CRM_Agent root)
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-from agents.engagement_adaptation.node import run_engagement_adaptation
-from agents.fit_scoring.node import run_fit_scoring
-from agents.personalization.node import run_personalization
-from agents.qa_compliance.node import run_qa_compliance
-from agents.research_brief.node import run_research_brief
-from agents.target_discovery.node import run_target_discovery
+from agents.prospecting_agent.engagement_adaptation.node import run_engagement_adaptation
+from agents.prospecting_agent.fit_scoring.node import run_fit_scoring
+from agents.prospecting_agent.personalization.node import run_personalization
+from agents.prospecting_agent.qa_compliance.node import run_qa_compliance
+from agents.prospecting_agent.research_brief.node import run_research_brief
+from agents.prospecting_agent.target_discovery.node import run_target_discovery
 from common.groq_client import GroqClient
 from common.schemas import ProspectingRequest, ProspectingResponse
 from graph.state import ProspectingState
