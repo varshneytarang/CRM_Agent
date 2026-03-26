@@ -1,9 +1,9 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { LandingPage } from "./components/LandingPage";
-import { PipelineDashboard } from "./components/PipelineDashboard";
 import { Login } from "./components/Login";
 import { Register } from "./components/Register";
+import { PipelineDashboard } from "./components/PipelineDashboard";
 import { Onboarding } from "./components/Onboarding";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
@@ -33,14 +33,7 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <LandingPage />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/" element={<LandingPage />} />
 
           {/* Catch all */}
           <Route path="*" element={<Navigate to="/login" replace />} />

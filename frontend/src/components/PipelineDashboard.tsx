@@ -3,6 +3,7 @@ import { useMergeLink } from "@mergeapi/react-merge-link";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
+import { ProspectingChatDock } from "./ProspectingChatDock";
 import type { PipelineAnalysisReport } from "../contracts/report";
 import type { CrmRecord, UnifiedDashboardResponse } from "../contracts/unifiedDashboard";
 
@@ -32,7 +33,7 @@ function normalizeDashboardData(raw: any): UnifiedDashboardResponse {
 
 function renderCompactTable(title: string, records: CrmRecord[], options?: { showAmount?: boolean; showContact?: boolean }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-sm">
+    <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-[0_12px_26px_rgba(15,23,42,0.06)] backdrop-blur-sm">
       <div className="flex items-center justify-between">
         <h2 className="text-base font-semibold text-slate-900">{title}</h2>
         <span className="text-xs text-slate-500">{records.length} records</span>
@@ -54,7 +55,7 @@ function renderCompactTable(title: string, records: CrmRecord[], options?: { sho
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {records.slice(0, 12).map((item) => (
-                <tr key={item.id}>
+                <tr key={item.id} className="transition-colors hover:bg-slate-50/90">
                   <td className="px-2 py-2">{item.name || item.id}</td>
                   {options?.showAmount ? <td className="px-2 py-2">{item.amount ?? "-"}</td> : null}
                   <td className="px-2 py-2">{item.stage ?? "-"}</td>
@@ -218,74 +219,90 @@ export function PipelineDashboard() {
   }, [endUserOriginId, checkConnectionStatus, fetchUnifiedDashboard]);
 
   const summary = dashboardData?.summary;
+  const dealStageDistribution = useMemo(() => {
+    const stages = new Map<string, number>();
+    for (const deal of dashboardData?.deals ?? []) {
+      const stage = (deal.stage || "Unspecified").trim() || "Unspecified";
+      stages.set(stage, (stages.get(stage) ?? 0) + 1);
+    }
+    return Array.from(stages.entries())
+      .map(([stage, count]) => ({ stage, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6);
+  }, [dashboardData?.deals]);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#dbeafe_0%,_#eef2ff_40%,_#f8fafc_100%)] text-slate-900">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-6 flex items-center justify-between">
-          <Link to="/" className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
-            Back to Home
-          </Link>
-          <span className="text-sm text-slate-600">Signed in as {user?.username ?? "user"}</span>
-        </div>
+    <div className="ds-shell text-slate-900">
+      <div className="ds-container px-4 py-8 sm:px-6 lg:px-8">
+        <div className="grid gap-5 lg:grid-cols-[280px_1fr] lg:items-start">
+          <aside className="lg:sticky lg:top-6">
+            <div className="ds-panel-strong p-5">
+              <div className="flex items-center justify-between">
+                <Link to="/" className="ds-btn ds-btn-secondary ds-btn-pill !px-3 !py-1.5 !text-xs">
+                  Back
+                </Link>
+                <span className="text-xs text-slate-500">{user?.username ?? "user"}</span>
+              </div>
 
-        <div className="rounded-3xl border border-sky-200 bg-gradient-to-r from-sky-600 via-indigo-600 to-blue-700 px-6 py-8 text-white shadow-lg">
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Revenue Command Center</h1>
-          <p className="mt-2 max-w-3xl text-sm text-sky-100 sm:text-base">
-            Persistent CRM connection, live entity coverage, and one-click pipeline risk analysis.
-          </p>
-        </div>
+              <div className="mt-5 rounded-2xl border border-cyan-100 bg-cyan-50/70 p-4">
+                <div className="ds-kicker">CRM Connection</div>
+                <div className="mt-2 flex items-center gap-2">
+                  <span
+                    className={`inline-flex h-2.5 w-2.5 rounded-full ${
+                      connectionStatus === "connected"
+                        ? "bg-emerald-500"
+                        : connectionStatus === "checking"
+                          ? "bg-amber-500"
+                          : "bg-rose-500"
+                    }`}
+                  />
+                  <span className="text-sm font-medium text-slate-800">
+                    {connectionStatus === "connected"
+                      ? "Connected"
+                      : connectionStatus === "checking"
+                        ? "Checking"
+                        : "Not connected"}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-slate-500">User ID: {endUserOriginId || "Loading..."}</p>
+              </div>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:col-span-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">CRM Connection</div>
-            <div className="mt-2 flex items-center gap-2">
-              <span
-                className={`inline-flex h-2.5 w-2.5 rounded-full ${
-                  connectionStatus === "connected"
-                    ? "bg-emerald-500"
-                    : connectionStatus === "checking"
-                      ? "bg-amber-500"
-                      : "bg-rose-500"
-                }`}
-              />
-              <span className="text-sm font-medium text-slate-800">
-                {connectionStatus === "connected"
-                  ? "Connected"
-                  : connectionStatus === "checking"
-                    ? "Checking connection"
-                    : "Not connected"}
-              </span>
+              <div className="mt-4 grid gap-2">
+                <button
+                  onClick={createLinkToken}
+                  disabled={busy || !endUserOriginId}
+                  className="ds-btn ds-btn-dark w-full"
+                >
+                  {connectionStatus === "connected" ? "Reconnect CRM" : "Connect CRM"}
+                </button>
+                <button
+                  onClick={fetchUnifiedDashboard}
+                  disabled={busy || connectionStatus !== "connected"}
+                  className="ds-btn ds-btn-secondary w-full"
+                >
+                  Refresh Data
+                </button>
+                <button
+                  onClick={analyze}
+                  disabled={busy || !dashboardData}
+                  className="ds-btn ds-btn-primary w-full"
+                >
+                  Analyze Pipeline
+                </button>
+              </div>
             </div>
-            <p className="mt-2 text-xs text-slate-500">User ID: {endUserOriginId || "Loading..."}</p>
+          </aside>
 
-            <div className="mt-4 grid gap-2">
-              <button
-                onClick={createLinkToken}
-                disabled={busy || !endUserOriginId}
-                className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {connectionStatus === "connected" ? "Reconnect CRM" : "Connect CRM"}
-              </button>
-              <button
-                onClick={fetchUnifiedDashboard}
-                disabled={busy || connectionStatus !== "connected"}
-                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Refresh Data
-              </button>
-              <button
-                onClick={analyze}
-                disabled={busy || !dashboardData}
-                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Analyze Pipeline
-              </button>
+          <section className="space-y-5">
+            <div className="rounded-3xl border border-white/70 bg-gradient-to-r from-[#235f74] via-[#2b5f8a] to-[#2f5776] px-6 py-7 text-white shadow-[0_24px_65px_rgba(35,95,116,0.25)]">
+              <p className="text-xs uppercase tracking-[0.3em] text-cyan-100">Revenue Command Center</p>
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Pipeline Board</h1>
+              <p className="mt-2 max-w-3xl text-sm text-cyan-50 sm:text-base">
+                A structured, calm workspace for CRM sync, entity coverage, and risk scanning with minimal motion.
+              </p>
             </div>
-          </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:col-span-2">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {[
                 { label: "Deals", value: summary?.total_deals ?? 0 },
                 { label: "Opportunities", value: summary?.total_opportunities ?? 0 },
@@ -296,13 +313,13 @@ export function PipelineDashboard() {
                 { label: "Total Amount", value: (summary?.total_amount ?? 0).toLocaleString() },
                 { label: "Data Sync", value: dashboardData ? new Date(dashboardData.fetched_at).toLocaleTimeString() : "-" },
               ].map((item) => (
-                <div key={item.label} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="text-xs uppercase tracking-wide text-slate-500">{item.label}</div>
+                <div key={item.label} className="pipeline-subtle-tile ds-panel px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{item.label}</div>
                   <div className="mt-1 text-xl font-semibold text-slate-900">{item.value}</div>
                 </div>
               ))}
             </div>
-          </div>
+          </section>
         </div>
 
         {!isReady && linkToken ? (
@@ -330,40 +347,94 @@ export function PipelineDashboard() {
               </div>
             ) : null}
 
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:col-span-2">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold text-slate-900">Deals</h2>
-                  <span className="text-xs text-slate-500">{dashboardData.deals.length} records</span>
-                </div>
-                <div className="mt-3 overflow-x-auto">
-                  <table className="min-w-full divide-y divide-slate-200 text-sm">
-                    <thead>
-                      <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                        <th className="px-2 py-2">Deal</th>
-                        <th className="px-2 py-2">Amount</th>
-                        <th className="px-2 py-2">Stage</th>
-                        <th className="px-2 py-2">Last Activity</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-slate-700">
-                      {dashboardData.deals.map((deal) => (
-                        <tr key={deal.id}>
-                          <td className="px-2 py-2">{deal.name || deal.id}</td>
-                          <td className="px-2 py-2">{deal.amount ?? "-"}</td>
-                          <td className="px-2 py-2">{deal.stage ?? "-"}</td>
-                          <td className="px-2 py-2">{deal.last_activity ?? "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+            <div className="grid gap-4 xl:grid-cols-[300px_1fr]">
+              <aside className="xl:sticky xl:top-6 xl:self-start">
+                <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-[0_12px_26px_rgba(15,23,42,0.06)] backdrop-blur-sm">
+                  <h2 className="text-base font-semibold text-slate-900">Pipeline Notes</h2>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Editorial summary rail for stage concentration and freshness checks.
+                  </p>
 
-              {renderCompactTable("Opportunities", dashboardData.opportunities, { showAmount: true })}
-              {renderCompactTable("Contacts", dashboardData.contacts, { showContact: true })}
-              {renderCompactTable("Companies", dashboardData.companies, { showContact: true })}
-              {renderCompactTable("Engagements", dashboardData.engagements)}
+                  <div className="mt-4 space-y-3">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Data Source</p>
+                      <p className="mt-1 text-sm font-medium text-slate-800">{dashboardData.source.toUpperCase()}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Last Sync</p>
+                      <p className="mt-1 text-sm font-medium text-slate-800">
+                        {new Date(dashboardData.fetched_at).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Top Deal Stages</p>
+                      {dealStageDistribution.length === 0 ? (
+                        <p className="mt-1 text-sm text-slate-600">No stage data available.</p>
+                      ) : (
+                        <div className="mt-2 space-y-2">
+                          {dealStageDistribution.map((item) => (
+                            <div key={item.stage}>
+                              <div className="flex items-center justify-between text-xs text-slate-600">
+                                <span>{item.stage}</span>
+                                <span>{item.count}</span>
+                              </div>
+                              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                                <div
+                                  className="h-full rounded-full bg-cyan-700/70 transition-all duration-500"
+                                  style={{
+                                    width: `${Math.max(
+                                      10,
+                                      summary?.total_deals ? (item.count / summary.total_deals) * 100 : 0
+                                    )}%`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </aside>
+
+              <section className="space-y-4">
+                <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-[0_12px_26px_rgba(15,23,42,0.06)] backdrop-blur-sm">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-semibold text-slate-900">Deals</h2>
+                    <span className="text-xs text-slate-500">{dashboardData.deals.length} records</span>
+                  </div>
+                  <div className="mt-3 max-h-[390px] overflow-auto">
+                    <table className="min-w-full divide-y divide-slate-200 text-sm">
+                      <thead className="sticky top-0 bg-white/95 backdrop-blur-sm">
+                        <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                          <th className="px-2 py-2">Deal</th>
+                          <th className="px-2 py-2">Amount</th>
+                          <th className="px-2 py-2">Stage</th>
+                          <th className="px-2 py-2">Last Activity</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {dashboardData.deals.map((deal) => (
+                          <tr key={deal.id} className="transition-colors hover:bg-slate-50/90">
+                            <td className="px-2 py-2">{deal.name || deal.id}</td>
+                            <td className="px-2 py-2">{deal.amount ?? "-"}</td>
+                            <td className="px-2 py-2">{deal.stage ?? "-"}</td>
+                            <td className="px-2 py-2">{deal.last_activity ?? "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {renderCompactTable("Opportunities", dashboardData.opportunities, { showAmount: true })}
+                  {renderCompactTable("Contacts", dashboardData.contacts, { showContact: true })}
+                  {renderCompactTable("Companies", dashboardData.companies, { showContact: true })}
+                  {renderCompactTable("Engagements", dashboardData.engagements)}
+                </div>
+              </section>
             </div>
           </div>
         ) : connectionStatus === "not_connected" ? (
@@ -375,7 +446,7 @@ export function PipelineDashboard() {
             <button
               onClick={createLinkToken}
               disabled={busy || !endUserOriginId}
-              className="mt-5 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="ds-btn ds-btn-primary mt-5"
             >
               Connect CRM Now
             </button>
@@ -383,7 +454,7 @@ export function PipelineDashboard() {
         ) : null}
 
         {report ? (
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mt-6 rounded-2xl border border-white/70 bg-white/90 p-5 shadow-[0_12px_26px_rgba(15,23,42,0.06)] backdrop-blur-sm">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Risk Signals</h2>
               <div className="text-sm text-gray-600">
@@ -398,7 +469,7 @@ export function PipelineDashboard() {
             ) : (
               <div className="mt-4 grid gap-3">
                 {report.high_risk_deals.map((d) => (
-                  <div key={d.deal_id} className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+                  <div key={d.deal_id} className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 transition-shadow hover:shadow-[0_6px_18px_rgba(127,29,29,0.12)]">
                     <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                       <div className="text-sm font-semibold text-red-900">{d.deal_name || d.deal_id}</div>
                       <div className="text-xs text-red-900/80">
@@ -420,6 +491,14 @@ export function PipelineDashboard() {
           </div>
         ) : null}
       </div>
+      <ProspectingChatDock
+        userId={endUserOriginId}
+        leadContext={{
+          crm_connected: connectionStatus === "connected",
+          deal_count: dashboardData?.deals?.length ?? 0,
+          stale_deals: dashboardData?.summary?.stale_deals ?? 0,
+        }}
+      />
     </div>
   );
 }

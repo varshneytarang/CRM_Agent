@@ -79,28 +79,29 @@ export function Onboarding() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="max-w-2xl mx-auto">
+    <div className="ds-shell p-4">
+      <div className="ds-container max-w-5xl">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900">Welcome to CRM Agent, {user?.username}! 👋</h1>
-          <p className="text-lg text-gray-600 mt-2">Let's set up your CRM integration</p>
+        <div className="ds-panel-strong mb-8 px-6 py-7">
+          <p className="ds-kicker">Guided Setup</p>
+          <h1 className="mt-3 text-4xl font-semibold text-slate-900">Welcome, {user?.username}.</h1>
+          <p className="mt-2 text-base text-slate-600">Let's connect your CRM in a clean two-step flow.</p>
         </div>
 
         {/* Stepper */}
-        <div className="bg-white rounded-lg shadow-lg p-8 mb-6">
+        <div className="ds-panel-strong mb-6 p-8">
           <div className="flex items-center justify-between mb-8">
-            <div className={`flex flex-col items-center ${step >= 1 ? "text-indigo-600" : "text-gray-400"}`}>
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg ${step >= 1 ? "bg-indigo-600 text-white" : "bg-gray-200"}`}>
+            <div className={`flex flex-col items-center ${step >= 1 ? "text-cyan-700" : "text-slate-400"}`}>
+              <div className={`h-12 w-12 rounded-full flex items-center justify-center font-bold text-lg ${step >= 1 ? "bg-cyan-700 text-white" : "bg-slate-200"}`}>
                 1
               </div>
               <p className="mt-2 text-sm font-medium">Connect CRM</p>
             </div>
 
-            <div className={`flex-1 h-1 mx-4 ${step >= 2 ? "bg-indigo-600" : "bg-gray-300"}`}></div>
+            <div className={`mx-4 h-1 flex-1 rounded-full ${step >= 2 ? "bg-cyan-700/80" : "bg-slate-300"}`}></div>
 
-            <div className={`flex flex-col items-center ${step >= 2 ? "text-indigo-600" : "text-gray-400"}`}>
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg ${step >= 2 ? "bg-indigo-600 text-white" : "bg-gray-200"}`}>
+            <div className={`flex flex-col items-center ${step >= 2 ? "text-cyan-700" : "text-slate-400"}`}>
+              <div className={`h-12 w-12 rounded-full flex items-center justify-center font-bold text-lg ${step >= 2 ? "bg-cyan-700 text-white" : "bg-slate-200"}`}>
                 2
               </div>
               <p className="mt-2 text-sm font-medium">Complete</p>
@@ -110,13 +111,13 @@ export function Onboarding() {
           {/* Step 1: Connect CRM */}
           {step === 1 && (
             <div className="space-y-6">
-              <h2 className="text-2xl font-bold text-gray-900">Step 1: Connect Your CRM</h2>
-              <p className="text-gray-600">
+              <h2 className="text-2xl font-semibold text-slate-900">Step 1: Connect your CRM</h2>
+              <p className="text-slate-600">
                 Click the button below to connect your HubSpot or other CRM through Merge API. This allows CRM Agent to access your deals, opportunities, and contacts.
               </p>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm text-blue-800">
+              <div className="rounded-2xl border border-cyan-100 bg-cyan-50 p-4">
+                <p className="text-sm text-cyan-800">
                   <strong>Note:</strong> Merge supports multiple CRM providers. You can connect HubSpot, Salesforce, Pipedrive, and more through a single integration!
                 </p>
               </div>
@@ -124,20 +125,20 @@ export function Onboarding() {
               <button
                 onClick={openMergeLink}
                 disabled={isLoading}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white font-bold py-3 rounded-lg transition flex items-center justify-center"
+                className="ds-btn ds-btn-primary w-full"
               >
-                {isLoading ? "Connecting..." : "🔗 Connect Your CRM"}
+                {isLoading ? "Connecting..." : "Connect Your CRM"}
               </button>
 
               {!isReady ? (
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-slate-500">
                   Preparing Merge Link widget...
                 </p>
               ) : null}
 
               <button
                 onClick={handleSkip}
-                className="w-full text-gray-600 hover:text-gray-900 font-medium py-2"
+                className="ds-btn ds-btn-secondary w-full"
               >
                 Skip for now
               </button>
@@ -148,20 +149,20 @@ export function Onboarding() {
           {step === 2 && (
             <div className="space-y-6 text-center">
               <div className="text-6xl">✅</div>
-              <h2 className="text-2xl font-bold text-gray-900">CRM Connected!</h2>
-              <p className="text-gray-600">
+              <h2 className="text-2xl font-semibold text-slate-900">CRM Connected!</h2>
+              <p className="text-slate-600">
                 Your CRM is now connected. You can start managing your pipeline and analyzing deals right away.
               </p>
 
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <p className="text-sm text-green-800">
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                <p className="text-sm text-emerald-800">
                   <strong>Great!</strong> You're all set. Your CRM data is now accessible in the dashboard.
                 </p>
               </div>
 
               <button
                 onClick={handleContinue}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg transition"
+                className="ds-btn ds-btn-primary w-full"
               >
                 Go to Dashboard
               </button>
@@ -170,23 +171,23 @@ export function Onboarding() {
         </div>
 
         {/* Info Section */}
-        <div className="bg-white rounded-lg shadow-lg p-8">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">What can you do with CRM Agent?</h3>
-          <ul className="space-y-3 text-gray-700">
+        <div className="ds-panel p-8">
+          <h3 className="mb-4 text-lg font-semibold text-slate-900">What you can do with CRM Agent</h3>
+          <ul className="space-y-3 text-slate-700">
             <li className="flex items-start">
-              <span className="text-green-500 mr-3">✓</span>
+              <span className="mr-3 text-emerald-500">✓</span>
               <span>View all deals and opportunities from your CRM</span>
             </li>
             <li className="flex items-start">
-              <span className="text-green-500 mr-3">✓</span>
+              <span className="mr-3 text-emerald-500">✓</span>
               <span>Analyze pipeline health and identify at-risk deals</span>
             </li>
             <li className="flex items-start">
-              <span className="text-green-500 mr-3">✓</span>
+              <span className="mr-3 text-emerald-500">✓</span>
               <span>Track contacts, companies, and engagement history</span>
             </li>
             <li className="flex items-start">
-              <span className="text-green-500 mr-3">✓</span>
+              <span className="mr-3 text-emerald-500">✓</span>
               <span>Get AI-powered risk assessments for your pipeline</span>
             </li>
           </ul>

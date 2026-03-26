@@ -1,2 +1,10 @@
 Flask==3.1.0
 python-dateutil==2.9.0.post0
+langgraph==0.2.76
+langchain-core==0.3.83
+pydantic==2.10.6
+requests==2.32.3
+resend==2.26.0
+langfuse==2.60.10
+redis==5.3.1
+calendly==1.1.1
