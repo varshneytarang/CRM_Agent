@@ -63,7 +63,7 @@ api.interceptors.response.use(
         isRefreshing = false;
       }
 
-      return new Promise((resolve, reject) => {
+      return new Promise((resolve) => {
         subscribeToken((token: string) => {
           originalRequest.headers.Authorization = `Bearer ${token}`;
           resolve(api(originalRequest));

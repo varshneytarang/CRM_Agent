@@ -56,6 +56,9 @@ type PipelineAnalysisReport = {
   all_deals: DealRisk[];
 };
 
+type MergeOpportunity = Record<string, unknown>;
+type MergeEngagement = Record<string, unknown>;
+
 function extractUpstreamError(responseData: unknown): string {
   if (typeof responseData === "string") {
     return responseData.trim();
@@ -387,6 +390,97 @@ async function fetchUnifiedDashboardData(
   };
 }
 
+function normalizeOptionalString(value: unknown): string | undefined {
+  const normalized = normalizeText(value);
+  return normalized ?? undefined;
+}
+
+function coerceEngagementType(value: unknown): "NOTE" | "EMAIL" | "CALL" | "TASK" | "MEETING" | "OTHER" {
+  const raw = String(value ?? "").trim().toUpperCase();
+  if (raw === "NOTE") return "NOTE";
+  if (raw === "EMAIL") return "EMAIL";
+  if (raw === "CALL") return "CALL";
+  if (raw === "TASK") return "TASK";
+  if (raw === "MEETING") return "MEETING";
+  return "OTHER";
+}
+
+function pickTextField(raw: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = normalizeText(raw[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+async function fetchMergeOpportunityDetail(params: {
+  accountToken: string;
+  opportunityId: string;
+}): Promise<MergeOpportunity | null> {
+  const headers = {
+    Authorization: `Bearer ${process.env.MERGE_API_KEY}`,
+    "X-Account-Token": params.accountToken,
+  };
+
+  const endpoints = [
+    `https://api.merge.dev/api/crm/v1/opportunities/${encodeURIComponent(params.opportunityId)}`,
+    `https://api.merge.dev/api/crm/v1/deals/${encodeURIComponent(params.opportunityId)}`,
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const res = await axios.get<MergeOpportunity>(endpoint, { headers, timeout: 15000 });
+      if (res.data && typeof res.data === "object") {
+        return res.data;
+      }
+      return null;
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 404) {
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  return null;
+}
+
+async function fetchMergeEngagements(params: {
+  accountToken: string;
+  limit: number;
+}): Promise<MergeEngagement[]> {
+  const headers = {
+    Authorization: `Bearer ${process.env.MERGE_API_KEY}`,
+    "X-Account-Token": params.accountToken,
+  };
+
+  const endpoints = [
+    "https://api.merge.dev/api/crm/v1/engagements",
+    "https://api.merge.dev/api/crm/v1/activities",
+    "https://api.merge.dev/api/crm/v1/tasks",
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const res = await axios.get<MergeListResponse<MergeEngagement>>(endpoint, {
+        headers,
+        timeout: 20000,
+      });
+      const results = Array.isArray(res.data?.results) ? res.data.results : [];
+      return results.slice(0, Math.max(0, params.limit));
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 404) {
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  return [];
+}
+
 analyzeRouter.post("/hubspot/unified-dashboard", requireAuth, async (req: Request, res: Response) => {
   try {
     const authUser = (req as any).user;
@@ -460,6 +554,128 @@ analyzeRouter.post("/analyze-pipeline", requireAuth, async (req: Request, res: R
       }
       throw agentErr;
     }
+  } catch (err: any) {
+    const status = err?.status ?? err?.response?.status ?? 500;
+    const responseData = err?.response?.data;
+    const responseText = extractUpstreamError(responseData);
+    const message =
+      responseText ||
+      err?.message ||
+      err?.response?.statusText ||
+      `Upstream request failed (${status})`;
+    return res.status(status).json({ error: message });
+  }
+});
+
+// Real-time Deal Strategist (Competitive Intelligence) — fetch CRM context via Merge then call Python agent.
+analyzeRouter.post("/ci/deal-strategy", requireAuth, async (req: Request, res: Response) => {
+  try {
+    if (!process.env.MERGE_API_KEY) {
+      return res.status(500).json({ error: "MERGE_API_KEY not set" });
+    }
+
+    const authUser = (req as any).user;
+    const {
+      end_user_origin_id,
+      external_account_id,
+      opportunity_id,
+    } = req.body ?? {};
+    const resolvedOriginId = authUser?.userid ?? end_user_origin_id;
+
+    if (!resolvedOriginId) {
+      return res.status(400).json({ error: "end_user_origin_id is required" });
+    }
+
+    const externalAccountId =
+      typeof external_account_id === "string" && external_account_id.trim()
+        ? external_account_id.trim()
+        : undefined;
+
+    const accountToken = await getAccountToken(resolvedOriginId, externalAccountId);
+    if (!accountToken) {
+      return res.status(400).json({
+        error: "No account_token stored for this end_user_origin_id. Connect CRM via Merge Link first.",
+      });
+    }
+
+    // Choose a target opportunity.
+    let targetOpportunityId = typeof opportunity_id === "string" ? opportunity_id.trim() : "";
+    let fallbackDeal: Deal | undefined;
+
+    if (!targetOpportunityId) {
+      const deals = await fetchDealsForUser(resolvedOriginId, externalAccountId);
+      // Prefer the largest deal amount as a default.
+      fallbackDeal = [...deals].sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0))[0];
+      targetOpportunityId = fallbackDeal?.id ?? "";
+    }
+
+    if (!targetOpportunityId) {
+      return res.status(404).json({ error: "No deals/opportunities available to analyze" });
+    }
+
+    const [oppDetail, engagementsRaw] = await Promise.all([
+      fetchMergeOpportunityDetail({ accountToken, opportunityId: targetOpportunityId }).catch(() => null),
+      fetchMergeEngagements({ accountToken, limit: 50 }).catch(() => []),
+    ]);
+
+    const oppObj = (oppDetail ?? {}) as Record<string, unknown>;
+    const oppName =
+      normalizeText(oppObj["name"]) ??
+      normalizeText(oppObj["title"]) ??
+      normalizeText(oppObj["deal_name"]) ??
+      fallbackDeal?.name ??
+      targetOpportunityId;
+    const oppDesc =
+      pickTextField(oppObj, ["description", "body", "content", "text", "notes"]) ??
+      null;
+
+    const opportunityPayload = {
+      id: targetOpportunityId,
+      name: oppName,
+      description: oppDesc,
+      amount: normalizeNumber(oppObj["amount"]) ?? fallbackDeal?.amount ?? null,
+      stage: normalizeText(oppObj["stage"]) ?? fallbackDeal?.stage ?? null,
+      owner: normalizeText(oppObj["owner"]) ?? normalizeText(oppObj["owner_name"]) ?? null,
+      modified_at:
+        normalizeText(oppObj["modified_at"]) ??
+        normalizeText(oppObj["last_activity_at"]) ??
+        normalizeText(oppObj["created_at"]) ??
+        fallbackDeal?.last_activity ??
+        null,
+    };
+
+    const engagementsPayload = engagementsRaw
+      .map((raw) => {
+        const subject = pickTextField(raw, ["subject", "title", "name"]) ?? null;
+        const content = pickTextField(raw, ["content", "body", "description", "text", "note"]) ?? null;
+        const occurredAt =
+          normalizeOptionalString(raw["occurred_at"]) ??
+          normalizeOptionalString(raw["created_at"]) ??
+          normalizeOptionalString(raw["modified_at"]);
+        return {
+          id: String(raw["id"] ?? ""),
+          type: coerceEngagementType(raw["type"] ?? raw["engagement_type"] ?? raw["activity_type"]),
+          subject,
+          content,
+          occurred_at: occurredAt ?? null,
+        };
+      })
+      .filter((e) => Boolean(e.id) || Boolean(e.subject) || Boolean(e.content));
+
+    const agentBaseUrl = process.env.AGENT_BASE_URL ?? "http://localhost:8000";
+    const agentRes = await axios.post(
+      `${agentBaseUrl.replace(/\/+$/, "")}/agent/ci/deal-strategy`,
+      {
+        opportunity: opportunityPayload,
+        engagements: engagementsPayload,
+      },
+      {
+        headers: { "Content-Type": "application/json" },
+        timeout: 30000,
+      }
+    );
+
+    return res.json(agentRes.data);
   } catch (err: any) {
     const status = err?.status ?? err?.response?.status ?? 500;
     const responseData = err?.response?.data;

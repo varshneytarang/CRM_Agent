@@ -39,6 +39,9 @@ from graph.workflow import build_graph
 app = Flask(__name__)
 workflow = build_graph()
 
+# Register the CI agent endpoints (e.g. /agent/ci/deal-strategy)
+register_routes(app)
+
 
 def _state_from_request(payload: ProspectingRequest) -> ProspectingState:
     state: ProspectingState = {
