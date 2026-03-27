@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { api } from "../api";
+import type { UnifiedDashboardResponse } from "../contracts/unifiedDashboard";
 
 export type AgentType = "revenue" | "prospecting" | "retention";
 export type AgentHealth = "active" | "updating" | "error";
@@ -49,9 +50,12 @@ export interface Recommendation {
   urgent: boolean;
 }
 
+export type HubspotSnapshot = UnifiedDashboardResponse;
+
 interface AgentWorkspaceContextValue {
   agents: AgentWorkspace[];
   recommendations: Recommendation[];
+  hubspotSnapshot: HubspotSnapshot | null;
   isRefreshing: boolean;
   refreshData: () => Promise<void>;
   updateRecommendationState: (id: string, state: RecommendationState) => void;
@@ -230,6 +234,7 @@ function normalizeStatus(value: string | undefined): AgentHealth {
 export function AgentWorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [agents, setAgents] = useState<AgentWorkspace[]>(INITIAL_AGENTS);
   const [recommendations, setRecommendations] = useState<Recommendation[]>(INITIAL_RECOMMENDATIONS);
+  const [hubspotSnapshot, setHubspotSnapshot] = useState<HubspotSnapshot | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const addTimelineEvent = useCallback(
@@ -260,32 +265,46 @@ export function AgentWorkspaceProvider({ children }: { children: React.ReactNode
     setIsRefreshing(true);
     try {
       const [dealRes, retentionRes] = await Promise.allSettled([
-        api.get("/api/hubspot/unified-dashboard"),
+        api.post("/api/hubspot/unified-dashboard", {}),
         api.get("/api/retention/dashboard/summary"),
       ]);
+
+      const nextHubspot =
+        dealRes.status === "fulfilled" && dealRes.value.data?.summary
+          ? (dealRes.value.data as HubspotSnapshot)
+          : null;
+
+      setHubspotSnapshot(nextHubspot);
 
       setAgents((prev) =>
         prev.map((agent) => {
           if (agent.id === "revenue" && dealRes.status === "fulfilled") {
-            const payload = dealRes.value.data ?? {};
+            const payload = (dealRes.value.data ?? {}) as Partial<HubspotSnapshot>;
+            const summary: Partial<HubspotSnapshot["summary"]> = payload.summary ?? {};
+            const fallbackDeals = Number(agent.metrics[0].value) || 0;
+            const fallbackStaleDeals = Number(agent.metrics[2].value) || 0;
+            const totalDeals = summary.total_deals ?? fallbackDeals;
+            const staleDeals = summary.stale_deals ?? fallbackStaleDeals;
+            const freshness = totalDeals > 0 ? Math.max(0, Math.round(((totalDeals - staleDeals) / totalDeals) * 100)) : 100;
+
             return {
               ...agent,
-              status: normalizeStatus(payload?.systemHealth?.orchestrator),
+              status: normalizeStatus((payload.warnings?.length ?? 0) > 0 ? "updating" : "active"),
               metrics: [
                 {
                   label: "Open Deals",
-                  value: String(payload?.openDeals ?? agent.metrics[0].value),
-                  trend: "+live sync",
+                  value: String(summary.total_deals ?? agent.metrics[0].value),
+                  trend: "live from HubSpot",
                 },
                 {
-                  label: "Win Probability",
-                  value: `${Math.round((payload?.averageWinRate ?? 0.63) * 100)}%`,
-                  trend: "from latest pipeline",
+                  label: "Pipeline Freshness",
+                  value: `${freshness}%`,
+                  trend: "fresh vs stale pipeline",
                 },
                 {
                   label: "Risk Flags",
-                  value: String(payload?.flaggedDeals ?? agent.metrics[2].value),
-                  trend: "auto-updated",
+                  value: String(summary.stale_deals ?? agent.metrics[2].value),
+                  trend: "stale opportunities",
                 },
               ],
             };
@@ -328,12 +347,13 @@ export function AgentWorkspaceProvider({ children }: { children: React.ReactNode
     () => ({
       agents,
       recommendations,
+      hubspotSnapshot,
       isRefreshing,
       refreshData,
       updateRecommendationState,
       addTimelineEvent,
     }),
-    [addTimelineEvent, agents, isRefreshing, recommendations, refreshData, updateRecommendationState]
+    [addTimelineEvent, agents, hubspotSnapshot, isRefreshing, recommendations, refreshData, updateRecommendationState]
   );
 
   return <AgentWorkspaceContext.Provider value={value}>{children}</AgentWorkspaceContext.Provider>;

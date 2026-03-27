@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   Bell,
+  Building2,
   ChevronDown,
   LayoutDashboard,
   ListChecks,
@@ -12,10 +13,11 @@ import {
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useAgentWorkspace } from "../../context/AgentWorkspaceContext";
-import { FloatingActionPanel } from "./FloatingActionPanel";
+import { ContextChatAssistant } from "./ContextChatAssistant";
 
 function titleFromPath(pathname: string): string {
   if (pathname.includes("/summary")) return "Summary and Recommendations";
+  if (pathname.includes("/hubspot")) return "HubSpot Full Insights";
   if (pathname.includes("/agents/")) return "Agent Workspace";
   if (pathname.includes("/settings")) return "Workspace Settings";
   return "Dashboard";
@@ -41,6 +43,7 @@ export function AppShell() {
   const navItems = useMemo(
     () => [
       { to: "/app/dashboard", label: "Dashboard", icon: <LayoutDashboard size={18} /> },
+      { to: "/app/hubspot", label: "HubSpot", icon: <Building2 size={18} /> },
       { to: "/app/summary", label: "Summary", icon: <ListChecks size={18} /> },
       { to: "/app/settings", label: "Settings", icon: <ShieldCheck size={18} /> },
     ],
@@ -210,7 +213,7 @@ export function AppShell() {
           </header>
 
           <Outlet />
-          {location.pathname.includes("/app/dashboard") && <FloatingActionPanel />}
+          {location.pathname.includes("/app/") && <ContextChatAssistant />}
         </main>
       </div>
     </div>
