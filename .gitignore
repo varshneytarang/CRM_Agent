@@ -15,3 +15,78 @@ coverage
 *.sw?
 *.bak
 *.tmp
+*.pyc
+__pycache__/
+venv/
+
+
+# --- Environments & Secrets ---
+# Never commit your API keys for LLMs or Database URLs!
+.env
+.env.local
+.env.*.local
+*.env
+auth.json
+secrets.py
+
+# --- Frontend (React, TypeScript, Tailwind) ---
+node_modules/
+dist/
+build/
+.cache/
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+.next/
+out/
+
+# --- Backend (Python, FastAPI, AI Agents) ---
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.venv/
+venv/
+ENV/
+env/
+# AI Agent specific: local vector DBs or logs
+logs/
+*.log
+.chroma/
+sqlite.db
+
+# --- Tailwind CSS ---
+# Usually covered by build/dist, but good to ensure
+.parcel-cache/
+.pnp
+.pnp.js
+
+# --- Testing & Coverage ---
+coverage/
+.nyc_output/
+htmlcov/
+.pytest_cache/
+.tox/
+.coverage
+.coverage.*
+
+# --- IDEs & OS Junk ---
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Packaging & Dependency Managers ---
+# We keep package-lock.json or yarn.lock, but ignore temporary files
+.npm/
+.yarn-integrity
+pip-log.txt
+pip-delete-this-directory.txt
+Notes.Md

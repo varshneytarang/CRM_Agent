@@ -219,6 +219,11 @@ export function PipelineDashboard() {
   }, [endUserOriginId, checkConnectionStatus, fetchUnifiedDashboard]);
 
   const summary = dashboardData?.summary;
+  const primaryDeal = useMemo(() => {
+    const deals = dashboardData?.deals ?? [];
+    if (deals.length === 0) return null;
+    return [...deals].sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0))[0] ?? null;
+  }, [dashboardData?.deals]);
   const dealStageDistribution = useMemo(() => {
     const stages = new Map<string, number>();
     for (const deal of dashboardData?.deals ?? []) {
@@ -497,6 +502,8 @@ export function PipelineDashboard() {
           crm_connected: connectionStatus === "connected",
           deal_count: dashboardData?.deals?.length ?? 0,
           stale_deals: dashboardData?.summary?.stale_deals ?? 0,
+          primary_opportunity_id: primaryDeal?.id ?? "",
+          primary_opportunity_name: primaryDeal?.name ?? "",
         }}
       />
     </div>

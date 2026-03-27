@@ -75,6 +75,21 @@ type ChatResponse = {
   error?: string;
 };
 
+type DealStrategistResponse = {
+  opportunity_id: string;
+  opportunity_name: string;
+  threat_level: "low" | "medium" | "high";
+  deal_tip: string;
+  suggested_hubspot_note: string;
+  generated_at: string;
+  llm?: {
+    used?: boolean;
+    status?: string;
+    model?: string | null;
+    error?: string | null;
+  };
+};
+
 export function ProspectingChatDock({ userId, leadContext = {} }: Props) {
   const [open, setOpen] = useState(true);
   const [wide, setWide] = useState(false);
@@ -96,6 +111,16 @@ export function ProspectingChatDock({ userId, leadContext = {} }: Props) {
   const leadEmailForQuery = useMemo(() => {
     const direct = leadContext["lead_email"];
     return typeof direct === "string" ? direct : "";
+  }, [leadContext]);
+
+  const primaryOpportunityId = useMemo(() => {
+    const raw = leadContext["primary_opportunity_id"];
+    return typeof raw === "string" ? raw : "";
+  }, [leadContext]);
+
+  const primaryOpportunityName = useMemo(() => {
+    const raw = leadContext["primary_opportunity_name"];
+    return typeof raw === "string" ? raw : "";
   }, [leadContext]);
 
   const appendAssistantMessage = useCallback((text: string) => {
@@ -210,6 +235,43 @@ export function ProspectingChatDock({ userId, leadContext = {} }: Props) {
       await refreshPanels();
     } catch (err: any) {
       const msg = err?.response?.data?.error ?? err?.message ?? "Flow execution failed";
+      setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${msg}` }]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function runDealStrategist() {
+    if (loading || !userId) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await api.post<DealStrategistResponse>("/api/ci/deal-strategy", {
+        opportunity_id: primaryOpportunityId || undefined,
+      });
+
+      const payload = res.data;
+      const title = payload.opportunity_name || primaryOpportunityName || payload.opportunity_id || "Opportunity";
+      const llmMeta = payload.llm?.used
+        ? `LLM: ${payload.llm?.status ?? "ok"} (${payload.llm?.model ?? "model"})`
+        : payload.llm?.status
+          ? `LLM: ${payload.llm.status}`
+          : "";
+
+      const messageLines = [
+        `[Deal Strategist] ${title}`,
+        `Threat: ${payload.threat_level}`,
+        `Tip: ${payload.deal_tip}`,
+        llmMeta,
+        "",
+        payload.suggested_hubspot_note,
+      ].filter(Boolean);
+
+      setMessages((prev) => [...prev, { role: "assistant", text: messageLines.join("\n") }]);
+    } catch (err: any) {
+      const msg = err?.response?.data?.error ?? err?.message ?? "Deal strategist request failed";
       setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${msg}` }]);
     } finally {
       setLoading(false);
@@ -346,7 +408,7 @@ export function ProspectingChatDock({ userId, leadContext = {} }: Props) {
                 m.role === "assistant"
                   ? "bg-white text-slate-800 shadow-sm"
                   : "ml-8 bg-indigo-600 text-white"
-              }`}
+              } whitespace-pre-wrap`}
             >
               {m.text}
             </div>
@@ -376,6 +438,14 @@ export function ProspectingChatDock({ userId, leadContext = {} }: Props) {
             className="ds-btn ds-btn-primary !px-3 !py-2 !text-xs"
           >
             Run Full Agent Flow
+          </button>
+          <button
+            onClick={runDealStrategist}
+            disabled={loading}
+            className="ds-btn ds-btn-secondary !px-3 !py-2 !text-xs"
+            title={primaryOpportunityId ? `Uses opportunity ${primaryOpportunityId}` : "Uses your top deal by amount"}
+          >
+            Deal Strategist
           </button>
         </div>
         <div className="flex gap-2">

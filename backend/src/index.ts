@@ -1,5 +1,5 @@
+import "dotenv/config";
 import cors from "cors";
-import dotenv from "dotenv";
 import express from "express";
 import { analyzeRouter } from "./routes/analyze";
 import { mergeRouter } from "./routes/merge";
@@ -8,8 +8,6 @@ import { prospectingRouter } from "./routes/prospecting";
 import webhookRouter from "./routes/webhooks";
 import approvalRouter from "./routes/approvals";
 import { initializePool, checkDatabaseConnection } from "./db/connection";
-
-dotenv.config();
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));

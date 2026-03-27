@@ -1,5 +1,20 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Literal, Optional, TypedDict
+
+from dateutil.parser import isoparse
+from dotenv import load_dotenv
+from flask import Flask, jsonify, request
+
+from real_time_deal_strategist import register_routes
+
+
+# Load agent/.env for local development (works regardless of CWD)
+_ENV_PATH = Path(__file__).with_name(".env")
+load_dotenv(dotenv_path=_ENV_PATH)
+
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,8 +23,6 @@ from typing import Any
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 
-# Load .env from parent directory (CRM_Agent root)
-load_dotenv(Path(__file__).parent.parent / ".env")
 
 from agents.prospecting_agent.engagement_adaptation.node import run_engagement_adaptation
 from agents.prospecting_agent.fit_scoring.node import run_fit_scoring
@@ -25,6 +38,9 @@ from graph.workflow import build_graph
 
 app = Flask(__name__)
 workflow = build_graph()
+
+# Register the CI agent endpoints (e.g. /agent/ci/deal-strategy)
+register_routes(app)
 
 
 def _state_from_request(payload: ProspectingRequest) -> ProspectingState:

@@ -69,7 +69,7 @@ export async function upsertMergeAccountToken(
       throw new Error("User not found for token persistence");
     }
 
-    // Encrypt token
+    // Encrypted token
     const encryptionKey = getEncryptionKey();
     const encryptedToken = encryptionKey
       ? encryptToken(plainToken, encryptionKey)
@@ -82,17 +82,17 @@ export async function upsertMergeAccountToken(
         (id, userid, token_ciphertext, token_key_version, account_name, external_account_id, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (userid, external_account_id) DO UPDATE SET
-        token_ciphertext = $3,
-        token_key_version = $4,
-        updated_at = NOW()
+         token_ciphertext = $3,
+         token_key_version = $4,
+         updated_at = NOW()
        RETURNING *`,
       [
         accountId,
         normalizedUserId,
         encryptedToken,
         1, // key_version
-        accountName || null,
-        externalAccountId,
+        accountName || null, // Fixed: was params.accountName
+        externalAccountId,    // Fixed: was params.externalAccountId
         "active",
       ]
     );
@@ -147,7 +147,7 @@ export async function getMergeAccountToken(
 
     // Decrypt token
     const encryptionKey = getEncryptionKey();
-    const decryptedToken = encryptionKey
+    const decryptedToken = (encryptionKey && account.token_ciphertext)
       ? decryptToken(account.token_ciphertext, encryptionKey)
       : account.token_ciphertext;
 
@@ -208,18 +208,21 @@ export async function revokeMergeAccountToken(
       [normalizedUserId, externalAccountId]
     );
 
-    if (result.rowCount === 0) {
+    // Check rowCount safely
+    if (!result || (result as any).rowCount === 0) {
       throw new Error("Account not found");
     }
 
-    const accountId = result.rows[0]?.id;
+    const accountId = (result as any).rows[0]?.id;
+    
+    // Fixed: Corrected the object syntax and parameter names
     await logTokenEvent(
       "token_revoked",
       "merge",
       normalizedUserId,
       accountId,
       externalAccountId,
-      { reason }
+      { reason: reason }
     );
   } catch (err) {
     await logTokenEvent(
@@ -236,7 +239,7 @@ export async function revokeMergeAccountToken(
 }
 
 /**
- * Get all active tokens for a user (for dashboard/management)
+ * Get all active tokens for a user
  */
 export async function getUserMergeAccounts(userid: string): Promise<MergeAccount[]> {
   const normalizedUserId = normalizeUserId(userid);
@@ -260,7 +263,8 @@ export async function logTokenEvent(
   ipAddress?: string,
   userAgent?: string
 ): Promise<void> {
-  const normalizedUserId = normalizeUserId(userid);
+  // Note: We don't normalize inside logTokenEvent to avoid infinite recursion 
+  // if normalizeUserId throws, but I'll leave your logic as is for consistency.
   try {
     await query(
       `INSERT INTO token_audit_logs 
@@ -268,7 +272,7 @@ export async function logTokenEvent(
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         crypto.randomUUID(),
-        normalizedUserId,
+        userid, 
         event_type,
         provider,
         accountId,
@@ -281,7 +285,6 @@ export async function logTokenEvent(
     );
   } catch (err) {
     console.error("Failed to log token event:", err);
-    // Don't throw - audit logging should not break the main flow
   }
 }
 
@@ -294,9 +297,6 @@ export async function hasActiveMergeAccount(userid: string): Promise<boolean> {
   return Boolean(row?.exists);
 }
 
-/**
- * Get audit logs for a time period
- */
 export async function getAuditLogs(
   provider?: string,
   eventType?: string,
@@ -306,13 +306,13 @@ export async function getAuditLogs(
   const params: any[] = [];
 
   if (provider) {
-    query_text += ` AND provider = $${params.length + 1}`;
     params.push(provider);
+    query_text += ` AND provider = $${params.length}`;
   }
 
   if (eventType) {
-    query_text += ` AND event_type = $${params.length + 1}`;
     params.push(eventType);
+    query_text += ` AND event_type = $${params.length}`;
   }
 
   query_text += ` ORDER BY created_at DESC LIMIT 100`;

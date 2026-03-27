@@ -1,0 +1,25 @@
+{
+  "opportunity": {
+    "id": "opp_123",
+    "name": "Acme Renewal",
+    "description": "Customer is evaluating us vs Salesforce (SFDC). Pricing was higher than expected.",
+    "amount": 50000,
+    "stage": "negotiation"
+  },
+  "engagements": [
+    {
+      "id": "eng_1",
+      "type": "NOTE",
+      "subject": "Internal note",
+      "content": "They also liked Zendesk, but said SFDC is the incumbent. Asked for discount.",
+      "occurred_at": "2026-03-26T10:00:00Z"
+    },
+    {
+      "id": "eng_2",
+      "type": "EMAIL",
+      "subject": "Re: pricing",
+      "content": "<p>Salesforce is ~20% cheaper per seat. Can you match?</p>",
+      "occurred_at": "2026-03-26T12:00:00Z"
+    }
+  ]
+}

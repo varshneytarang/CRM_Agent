@@ -5,3 +5,4 @@ export interface Deal {
   stage: string | null;
   last_activity: string | null;
 }
+  

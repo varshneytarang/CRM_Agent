@@ -9,6 +9,12 @@ Monorepo with:
 
 Create a `.env` in `backend/` (copy from `.env.example`) and set:
 - `MERGE_API_KEY=...`
+- `JWT_SECRET=...` (required)
+- `AGENT_BASE_URL=http://localhost:8000`
+
+Optional (recommended for persistence):
+- `DATABASE_URL=postgresql://...`
+- `TOKEN_ENCRYPTION_KEY=...`
 
 Run:
 
@@ -45,6 +51,7 @@ npm run dev
 Frontend runs on `http://localhost:5173` and proxies `/api/*` to the backend.
 
 ## Local flow
-1. In the UI, click **Get link token**
-2. Click **Connect HubSpot** (Merge Link)
-3. Click **Analyze pipeline** (Node fetches deals, calls the agent, returns report)
+1. Register / login in the UI
+2. Connect your CRM (Merge Link)
+3. Fetch unified CRM data (optional)
+4. Analyze pipeline (Node fetches deals, calls the agent, returns report)
