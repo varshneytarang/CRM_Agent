@@ -97,7 +97,10 @@ export function LandingPage() {
             {isAuthenticated ? (
               <>
                 <Link to="/hubspot-dashboard" className="ds-btn ds-btn-dark">
-                  Open Dashboard
+                  Open Command Center
+                </Link>
+                <Link to="/retention" className="ds-btn ds-btn-primary">
+                  Open Retention
                 </Link>
                 <Link to="/onboarding" className="ds-btn ds-btn-secondary">
                   Continue Setup
@@ -155,9 +158,14 @@ export function LandingPage() {
             </p>
             <div className="mt-4 flex flex-wrap gap-3">
               {isAuthenticated ? (
-                <Link to="/hubspot-dashboard" className="ds-btn ds-btn-primary">
-                  Go to Dashboard
-                </Link>
+                <>
+                  <Link to="/hubspot-dashboard" className="ds-btn ds-btn-primary">
+                    Go to Command Center
+                  </Link>
+                  <Link to="/retention" className="ds-btn ds-btn-secondary">
+                    Go to Retention
+                  </Link>
+                </>
               ) : (
                 <>
                   <Link to="/login" className="ds-btn ds-btn-primary">

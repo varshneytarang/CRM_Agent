@@ -30,6 +30,7 @@ from agents.prospecting_agent.personalization.node import run_personalization
 from agents.prospecting_agent.qa_compliance.node import run_qa_compliance
 from agents.prospecting_agent.research_brief.node import run_research_brief
 from agents.prospecting_agent.target_discovery.node import run_target_discovery
+from agents.retention_agent import retention_bp
 from common.groq_client import GroqClient
 from common.schemas import ProspectingRequest, ProspectingResponse
 from graph.state import ProspectingState
@@ -41,6 +42,9 @@ workflow = build_graph()
 
 # Register the CI agent endpoints (e.g. /agent/ci/deal-strategy)
 register_routes(app)
+
+# Register retention agent endpoints
+app.register_blueprint(retention_bp)
 
 
 def _state_from_request(payload: ProspectingRequest) -> ProspectingState:

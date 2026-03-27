@@ -28,6 +28,11 @@ if (redisConnection) {
   });
 }
 
+function queueUnavailableMessage(error?: unknown): string {
+  const msg = error instanceof Error ? error.message : String(error ?? "unknown queue error");
+  return `Queue unavailable (${msg}); falling back to sync`;
+}
+
 /**
  * Job queue for running prospecting agent workflows
  */
@@ -141,7 +146,7 @@ export async function submitProspectingJob(
   if (!prospectingQueue) {
     return {
       status: "error",
-      message: "Queue disabled or Redis unavailable",
+      message: "Queue disabled or Redis unavailable; falling back to sync",
     };
   }
 
@@ -155,10 +160,10 @@ export async function submitProspectingJob(
       message: "Prospecting job queued successfully",
     };
   } catch (error) {
-    console.error("[Jobs] Failed to submit prospecting job:", error);
+    console.warn("[Jobs] Prospecting queue unavailable, using sync fallback:", error instanceof Error ? error.message : String(error));
     return {
       status: "error",
-      message: `Failed to queue job: ${error instanceof Error ? error.message : String(error)}`,
+      message: queueUnavailableMessage(error),
     };
   }
 }
@@ -170,7 +175,7 @@ export async function submitEmailJob(userid: string, data: EmailJobData) {
   if (!emailQueue) {
     return {
       status: "error",
-      message: "Queue disabled or Redis unavailable",
+      message: "Queue disabled or Redis unavailable; falling back to sync",
     };
   }
 
@@ -184,10 +189,10 @@ export async function submitEmailJob(userid: string, data: EmailJobData) {
       message: "Email job queued successfully",
     };
   } catch (error) {
-    console.error("[Jobs] Failed to submit email job:", error);
+    console.warn("[Jobs] Email queue unavailable, using sync fallback:", error instanceof Error ? error.message : String(error));
     return {
       status: "error",
-      message: `Failed to queue email job: ${error instanceof Error ? error.message : String(error)}`,
+      message: queueUnavailableMessage(error),
     };
   }
 }
@@ -199,7 +204,7 @@ export async function submitSignalJob(userid: string, data: SignalJobData) {
   if (!signalQueue) {
     return {
       status: "error",
-      message: "Queue disabled or Redis unavailable",
+      message: "Queue disabled or Redis unavailable; falling back to sync",
     };
   }
 
@@ -212,10 +217,10 @@ export async function submitSignalJob(userid: string, data: SignalJobData) {
       jobId: job.id,
     };
   } catch (error) {
-    console.error("[Jobs] Failed to submit signal job:", error);
+    console.warn("[Jobs] Signal queue unavailable, using sync fallback:", error instanceof Error ? error.message : String(error));
     return {
       status: "error",
-      message: `Failed to queue signal job: ${error instanceof Error ? error.message : String(error)}`,
+      message: queueUnavailableMessage(error),
     };
   }
 }

@@ -27,6 +27,7 @@ export { default as JobMonitor } from "./JobMonitor";
 export type { JobStatus } from "./JobMonitor";
 export { default as EmailSenderDisplay } from "./EmailSenderDisplay";
 export { default as ProspectingResults } from "./ProspectingResults";
+export { default as RetentionDashboard } from "./RetentionDashboard";
 
 // Existing components
 export { LandingPage } from "./LandingPage";

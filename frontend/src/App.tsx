@@ -3,9 +3,10 @@ import { AuthProvider } from "./context/AuthContext";
 import { LandingPage } from "./components/LandingPage";
 import { Login } from "./components/Login";
 import { Register } from "./components/Register";
-import { PipelineDashboard } from "./components/PipelineDashboard";
 import { Onboarding } from "./components/Onboarding";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import RetentionDashboard from "./components/RetentionDashboard";
+import AgentCommandCenter from "./components/AgentCommandCenter";
 
 export default function App() {
   return (
@@ -29,7 +30,23 @@ export default function App() {
             path="/hubspot-dashboard"
             element={
               <ProtectedRoute>
-                <PipelineDashboard />
+                <AgentCommandCenter />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/agents"
+            element={
+              <ProtectedRoute>
+                <AgentCommandCenter />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/retention"
+            element={
+              <ProtectedRoute>
+                <RetentionDashboard />
               </ProtectedRoute>
             }
           />
