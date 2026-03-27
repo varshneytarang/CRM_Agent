@@ -7,7 +7,7 @@ import {
   RetentionStrategy,
   AccountEngagementMetrics,
   RenewalTracking,
-} from "../contracts/retention";
+} from "../../contracts/retention";
 
 export class RetentionRepository {
   constructor(private pool: Pool) {}

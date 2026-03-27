@@ -116,7 +116,7 @@ mergeRouter.post("/account-token", requireAuth, async (req: Request, res: Respon
       { headers: { Authorization: `Bearer ${apiKey}` } }
     );
 
-    const account_token = accountTokenRes.data.account_token;
+    const { account_token } = accountTokenRes.data;
     if (!account_token) {
       return res.status(502).json({ error: "Merge did not return account_token" });
     }

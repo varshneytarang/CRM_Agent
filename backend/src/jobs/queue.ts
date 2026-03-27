@@ -19,13 +19,34 @@ const redisConnection = queueEnabled
   : null;
 
 if (redisConnection) {
+  let redisWarned = false;
   redisConnection.on("error", (err) => {
-    console.warn("[Redis] Connection error (jobs will fall back to sync):", err.message);
+    if (!redisWarned) {
+      redisWarned = true;
+      console.warn("[Redis] Connection error (jobs will fall back to sync):", err.message);
+    }
   });
 
   redisConnection.on("connect", () => {
     console.log("[Redis] Connected for job queue");
   });
+}
+
+function attachQueueErrorHandler(queue: Queue | null, queueName: string): Queue | null {
+  if (!queue) {
+    return null;
+  }
+
+  let warned = false;
+  queue.on("error", (err) => {
+    if (!warned) {
+      warned = true;
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[Jobs] ${queueName} queue unavailable; using sync fallback (${message})`);
+    }
+  });
+
+  return queue;
 }
 
 function queueUnavailableMessage(error?: unknown): string {
@@ -36,8 +57,9 @@ function queueUnavailableMessage(error?: unknown): string {
 /**
  * Job queue for running prospecting agent workflows
  */
-export const prospectingQueue = redisConnection
-  ? new Queue("prospecting-jobs", {
+export const prospectingQueue = attachQueueErrorHandler(
+  redisConnection
+    ? new Queue("prospecting-jobs", {
       connection: redisConnection,
       defaultJobOptions: {
         attempts: 3,
@@ -48,14 +70,17 @@ export const prospectingQueue = redisConnection
         removeOnComplete: true,
         removeOnFail: false,
       },
-    })
-  : null;
+      })
+    : null,
+  "prospecting"
+);
 
 /**
  * Job queue for sending emails (triggered after guardrails check)
  */
-export const emailQueue = redisConnection
-  ? new Queue("email-jobs", {
+export const emailQueue = attachQueueErrorHandler(
+  redisConnection
+    ? new Queue("email-jobs", {
       connection: redisConnection,
       defaultJobOptions: {
         attempts: 5,
@@ -66,14 +91,17 @@ export const emailQueue = redisConnection
         removeOnComplete: true,
         removeOnFail: false,
       },
-    })
-  : null;
+      })
+    : null,
+  "email"
+);
 
 /**
  * Job queue for processing engagement signals (webhooks from email providers)
  */
-export const signalQueue = redisConnection
-  ? new Queue("signal-jobs", {
+export const signalQueue = attachQueueErrorHandler(
+  redisConnection
+    ? new Queue("signal-jobs", {
       connection: redisConnection,
       defaultJobOptions: {
         attempts: 2,
@@ -84,21 +112,26 @@ export const signalQueue = redisConnection
         removeOnComplete: true,
         removeOnFail: false,
       },
-    })
-  : null;
+      })
+    : null,
+  "signal"
+);
 
 /**
  * Job queue for approval requests (when human approval is required)
  */
-export const approvalQueue = redisConnection
-  ? new Queue("approval-jobs", {
+export const approvalQueue = attachQueueErrorHandler(
+  redisConnection
+    ? new Queue("approval-jobs", {
       connection: redisConnection,
       defaultJobOptions: {
         attempts: 1,
         removeOnComplete: false, // Keep approval jobs for audit
       },
-    })
-  : null;
+      })
+    : null,
+  "approval"
+);
 
 export interface ProspectingJobData {
   userid: string;

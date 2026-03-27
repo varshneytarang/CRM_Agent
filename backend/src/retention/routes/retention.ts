@@ -6,20 +6,20 @@
 import axios from "axios";
 import type { Request, Response } from "express";
 import { Router } from "express";
-import { requireAuth } from "./auth";
+import { requireAuth } from "../../routes/auth";
 import {
   saveRetentionSignal,
   getAccountSignals,
   getAccountSignalsBySource,
   getAccountsSignalCoverage,
-} from "../db/repositories/retentionSignalRepository";
+} from "../../db/repositories/retentionSignalRepository";
 import {
   saveRetentionScore,
   getLatestRetentionScore,
   getHighRiskAccounts,
   getAccountsByRiskBand,
   getRetentionSummary,
-} from "../db/repositories/retentionScoreRepository";
+} from "../../db/repositories/retentionScoreRepository";
 
 export const retentionRouter = Router();
 
@@ -29,6 +29,13 @@ type AuthenticatedRequest = Request & {
     username?: string;
   };
 };
+
+function getAccountId(raw: string | string[] | undefined): string {
+  if (Array.isArray(raw)) {
+    return raw[0] ?? "";
+  }
+  return raw ?? "";
+}
 
 function getAgentBaseUrl(): string {
   return process.env.AGENT_BASE_URL ?? "http://localhost:8000";
@@ -110,7 +117,7 @@ retentionRouter.post("/score", requireAuth, async (req: AuthenticatedRequest, re
       // Save scores returned from agent
       const scores = agentRes.data?.scores ?? [];
       for (const scoreData of scores) {
-        await saveRetentionScore(scorData);
+        await saveRetentionScore(scoreData);
       }
 
       return res.json({
@@ -142,7 +149,11 @@ retentionRouter.post("/score", requireAuth, async (req: AuthenticatedRequest, re
 retentionRouter.get("/account/:account_id", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userid = String(req.user?.userid ?? "");
-    const { account_id } = req.params;
+    const account_id = getAccountId(req.params.account_id);
+
+    if (!account_id) {
+      return res.status(400).json({ error: "account_id is required" });
+    }
 
     const score = await getLatestRetentionScore(userid, account_id);
     const signals = await getAccountSignals(userid, account_id, 50, 72);

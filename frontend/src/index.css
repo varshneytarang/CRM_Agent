@@ -375,3 +375,18 @@ code {
   padding: 4px 8px;
   background: rgba(148, 163, 184, 0.16);
 }
+
+.motion-rise {
+  animation: motion-rise-in 460ms ease both;
+}
+
+@keyframes motion-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
