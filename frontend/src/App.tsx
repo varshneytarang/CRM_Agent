@@ -15,6 +15,9 @@ const AgentWorkspacePage = lazy(() => import("./components/dashboard/AgentWorksp
 const SummaryRecommendationsPage = lazy(() =>
   import("./components/dashboard/SummaryRecommendationsPage").then((module) => ({ default: module.SummaryRecommendationsPage }))
 );
+const HubspotInsightsPage = lazy(() =>
+  import("./components/dashboard/HubspotInsightsPage").then((module) => ({ default: module.HubspotInsightsPage }))
+);
 const WorkspaceSettingsPage = lazy(() =>
   import("./components/dashboard/WorkspaceSettingsPage").then((module) => ({ default: module.WorkspaceSettingsPage }))
 );
@@ -60,6 +63,7 @@ export default function App() {
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="agents/:agentId" element={<AgentWorkspacePage />} />
+            <Route path="hubspot" element={<HubspotInsightsPage />} />
             <Route path="summary" element={<SummaryRecommendationsPage />} />
             <Route path="settings" element={<WorkspaceSettingsPage />} />
           </Route>
