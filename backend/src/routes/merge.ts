@@ -39,6 +39,44 @@ function extractUpstreamError(responseData: unknown): string {
   return "";
 }
 
+async function exchangeMergeAccountToken(apiKey: string, publicToken: string): Promise<string> {
+  const headers = { Authorization: `Bearer ${apiKey}` };
+  const tokenPath = `https://api.merge.dev/api/integrations/account-token/${encodeURIComponent(publicToken)}`;
+
+  const attempts: Array<() => Promise<any>> = [
+    () => axios.post(tokenPath, {}, { headers }),
+    () => axios.get(tokenPath, { headers }),
+    () =>
+      axios.post(
+        "https://api.merge.dev/api/integrations/account-token",
+        { public_token: publicToken },
+        { headers }
+      ),
+  ];
+
+  let lastError: any;
+  for (const attempt of attempts) {
+    try {
+      const res = await attempt();
+      const accountToken = res?.data?.account_token;
+      if (typeof accountToken === "string" && accountToken.trim()) {
+        return accountToken;
+      }
+      throw new Error("Merge did not return account_token");
+    } catch (err: any) {
+      lastError = err;
+      const status = err?.response?.status;
+      // 404/405 usually indicate a method/path variant mismatch; try next attempt.
+      if (status === 404 || status === 405) {
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError ?? new Error("Account token exchange failed");
+}
+
 /**
  * 1. Generate a Link Token to initialize the Merge Link UI
  */
@@ -109,17 +147,7 @@ mergeRouter.post("/account-token", requireAuth, async (req: Request, res: Respon
       return res.status(403).json({ error: "Unauthorized: origin_id mismatch" });
     }
 
-    // FIX: Merge uses POST for account token exchange, not GET
-    const accountTokenRes = await axios.post(
-      `https://api.merge.dev/api/integrations/account-token/${public_token}`,
-      {}, // Empty body
-      { headers: { Authorization: `Bearer ${apiKey}` } }
-    );
-
-    const account_token = accountTokenRes.data.account_token;
-    if (!account_token) {
-      return res.status(502).json({ error: "Merge did not return account_token" });
-    }
+    const account_token = await exchangeMergeAccountToken(apiKey, String(public_token));
 
     // Quick verification: call a lightweight Merge endpoint using the returned account_token
     try {
