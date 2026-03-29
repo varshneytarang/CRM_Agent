@@ -79,9 +79,29 @@ type DealStrategistResponse = {
   opportunity_id: string;
   opportunity_name: string;
   threat_level: "low" | "medium" | "high";
+  confidence_score?: number;
+  primary_objections?: string[];
+  next_actions?: string[];
   deal_tip: string;
   suggested_hubspot_note: string;
   generated_at: string;
+  detected?: Array<{
+    competitor: string;
+    matched_keywords: string[];
+    evidence: Array<{
+      source: string;
+      snippet: string;
+      engagement_id?: string | null;
+      occurred_at?: string | null;
+    }>;
+  }>;
+  battlecards?: Array<{
+    competitor: string;
+    strengths: string[];
+    weaknesses: string[];
+    landmine_questions: string[];
+    pricing_objection_handler: string;
+  }>;
   llm?: {
     used?: boolean;
     status?: string;
@@ -263,7 +283,22 @@ export function ProspectingChatDock({ userId, leadContext = {} }: Props) {
       const messageLines = [
         `[Deal Strategist] ${title}`,
         `Threat: ${payload.threat_level}`,
+        typeof payload.confidence_score === "number"
+          ? `Confidence: ${Math.round(payload.confidence_score * 100)}%`
+          : "",
+        payload.detected?.length
+          ? `Detected competitors: ${payload.detected.map((item) => item.competitor).join(", ")}`
+          : "",
+        payload.primary_objections?.length
+          ? `Objections: ${payload.primary_objections.join(", ")}`
+          : "",
         `Tip: ${payload.deal_tip}`,
+        payload.next_actions?.length
+          ? `Next actions:\n- ${payload.next_actions.join("\n- ")}`
+          : "",
+        payload.battlecards?.length
+          ? `Battlecard ask: ${payload.battlecards[0].landmine_questions?.[0] ?? "Probe implementation complexity and ROI evidence."}`
+          : "",
         llmMeta,
         "",
         payload.suggested_hubspot_note,

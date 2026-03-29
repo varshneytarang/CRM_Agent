@@ -13,7 +13,7 @@ from real_time_deal_strategist import register_routes
 
 # Load agent/.env for local development (works regardless of CWD)
 _ENV_PATH = Path(__file__).with_name(".env")
-load_dotenv(dotenv_path=_ENV_PATH)
+load_dotenv(dotenv_path=_ENV_PATH, override=True)
 
 import os
 from datetime import datetime, timezone

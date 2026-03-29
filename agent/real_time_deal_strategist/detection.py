@@ -86,11 +86,13 @@ def detect_competitors(
 
     # 2) Engagement content (notes/emails)
     for raw in engagements:
+        subject = normalize_text(raw.get("subject"))
         content = normalize_text(raw.get("content"))
-        if not content:
+        merged_text = " ".join(part for part in [subject, content] if part)
+        if not merged_text:
             continue
 
-        objections.update(detect_objections(content))
+        objections.update(detect_objections(merged_text))
 
         for comp in registry:
             matched: list[str] = []
@@ -100,12 +102,12 @@ def detect_competitors(
                 pattern = keyword_patterns.get(kw_norm)
                 if not pattern:
                     continue
-                for m in pattern.finditer(content):
+                for m in pattern.finditer(merged_text):
                     matched.append(kw)
                     evidences.append(
                         Evidence(
                             source="engagement.content",
-                            snippet=snippet_around(content, m.start(), m.end()),
+                            snippet=snippet_around(merged_text, m.start(), m.end()),
                             engagement_id=str(raw.get("id")) if raw.get("id") else None,
                             occurred_at=str(raw.get("occurred_at")) if raw.get("occurred_at") else None,
                         )

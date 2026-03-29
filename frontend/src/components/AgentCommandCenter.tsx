@@ -31,9 +31,35 @@ type DealStrategistResult = {
   opportunity_id: string;
   opportunity_name?: string;
   threat_level: "low" | "medium" | "high";
+  confidence_score?: number;
+  primary_objections?: string[];
+  next_actions?: string[];
   deal_tip: string;
   suggested_hubspot_note: string;
   generated_at: string;
+  detected?: Array<{
+    competitor: string;
+    matched_keywords: string[];
+    evidence: Array<{
+      source: string;
+      snippet: string;
+      engagement_id?: string | null;
+      occurred_at?: string | null;
+    }>;
+  }>;
+  battlecards?: Array<{
+    competitor: string;
+    strengths: string[];
+    weaknesses: string[];
+    landmine_questions: string[];
+    pricing_objection_handler: string;
+  }>;
+  llm?: {
+    used?: boolean;
+    status?: string;
+    model?: string | null;
+    error?: string | null;
+  };
 };
 
 type RetentionSummary = {
@@ -320,7 +346,41 @@ export default function AgentCommandCenter() {
                     <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
                       <p className="font-semibold">{dealResult.opportunity_name || dealResult.opportunity_id}</p>
                       <p className="mt-1">Threat: {dealResult.threat_level}</p>
+                      {typeof dealResult.confidence_score === "number" && (
+                        <p className="mt-1">Confidence: {Math.round(dealResult.confidence_score * 100)}%</p>
+                      )}
+                      {Array.isArray(dealResult.primary_objections) && dealResult.primary_objections.length > 0 && (
+                        <p className="mt-1">Objections: {dealResult.primary_objections.join(", ")}</p>
+                      )}
                       <p className="mt-1">Tip: {dealResult.deal_tip}</p>
+                      {Array.isArray(dealResult.detected) && dealResult.detected.length > 0 && (
+                        <div className="mt-2">
+                          <p className="font-semibold">Competitors</p>
+                          <p className="mt-1">{dealResult.detected.map((item) => item.competitor).join(", ")}</p>
+                        </div>
+                      )}
+                      {Array.isArray(dealResult.next_actions) && dealResult.next_actions.length > 0 && (
+                        <div className="mt-2">
+                          <p className="font-semibold">Next Actions</p>
+                          <ul className="ml-5 list-disc space-y-1">
+                            {dealResult.next_actions.map((action, idx) => (
+                              <li key={`${idx}-${action.slice(0, 24)}`}>{action}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {Array.isArray(dealResult.battlecards) && dealResult.battlecards.length > 0 && (
+                        <div className="mt-2">
+                          <p className="font-semibold">Battlecard Prompt</p>
+                          <p className="mt-1">
+                            Ask: {dealResult.battlecards[0].landmine_questions?.[0] ?? "Probe implementation complexity and hidden cost drivers."}
+                          </p>
+                        </div>
+                      )}
+                      <p className="mt-2 text-xs text-sky-800/90">
+                        LLM: {dealResult.llm?.status ?? "unknown"}
+                        {dealResult.llm?.model ? ` (${dealResult.llm.model})` : ""}
+                      </p>
                     </div>
                   )}
                 </div>

@@ -13,7 +13,9 @@ ThreatLevel = Literal["low", "medium", "high"]
 @dataclass(frozen=True)
 class GroqStrategyResult:
     threat_level: ThreatLevel
+    confidence_score: float
     deal_tip: str
+    next_actions: list[str]
     landmine_indexes: list[int]
     note_summary: str
 
@@ -53,6 +55,45 @@ def _ensure_indexes(value: Any, *, max_len: int) -> list[int]:
     return deduped[:max_len]
 
 
+def _ensure_confidence(value: Any) -> float:
+    if isinstance(value, (int, float)):
+        out = float(value)
+    elif isinstance(value, str):
+        try:
+            out = float(value.strip())
+        except ValueError as e:
+            raise GroqError(f"Invalid confidence_score: {value!r}") from e
+    else:
+        raise GroqError(f"Invalid confidence_score: {value!r}")
+
+    if out < 0:
+        return 0.0
+    if out > 1:
+        return 1.0
+    return out
+
+
+def _ensure_actions(value: Any, *, max_len: int) -> list[str]:
+    if not isinstance(value, list):
+        raise GroqError("next_actions must be a list")
+
+    out: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        cleaned = _clip(item.strip(), 180)
+        if cleaned:
+            out.append(cleaned)
+
+    # De-dupe while preserving order
+    deduped: list[str] = []
+    for item in out:
+        if item.lower() not in {v.lower() for v in deduped}:
+            deduped.append(item)
+
+    return deduped[:max_len]
+
+
 def call_groq_for_strategy(
     *,
     opportunity_name: str,
@@ -61,6 +102,11 @@ def call_groq_for_strategy(
     evidence_snippets: list[str],
     objections: list[str],
     landmine_questions: list[str],
+    research_context_snippets: list[str] | None = None,
+    stage: str | None = None,
+    amount: float | int | None = None,
+    forecast_category: str | None = None,
+    next_step: str | None = None,
 ) -> GroqStrategyResult:
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
@@ -70,6 +116,9 @@ def call_groq_for_strategy(
 
     # Keep prompt tight and grounded in provided text.
     evidence_block = "\n".join(f"- { _clip(s, 220) }" for s in evidence_snippets[:8])
+    research_block = "\n".join(
+        f"- { _clip(s, 220) }" for s in (research_context_snippets or [])[:8]
+    )
     landmine_block = "\n".join(
         f"[{i}] { _clip(q, 200) }" for i, q in enumerate(landmine_questions)
     )
@@ -84,6 +133,10 @@ def call_groq_for_strategy(
 Opportunity: {opportunity_name}
 Competitor detected: {competitor_name}
 Known objection tags (heuristic): {', '.join(objections) if objections else 'none'}
+Stage: {stage or 'unknown'}
+Amount: {amount if amount is not None else 'unknown'}
+Forecast category: {forecast_category or 'unknown'}
+Existing next step: {next_step or 'none'}
 
 Opportunity description (may be empty):
 {_clip(opportunity_description, 1200)}
@@ -91,19 +144,26 @@ Opportunity description (may be empty):
 Evidence snippets:
 {evidence_block if evidence_block else '- (none)'}
 
+External competitor context (best-effort web snippets; may be empty):
+{research_block if research_block else '- (none)'}
+
 Candidate landmine questions (select up to 3 by index):
 {landmine_block if landmine_block else '(none)'}
 
 TASK:
 1) Decide threat_level: low|medium|high.
-2) Write one deal_tip (max 240 chars) tailored to this opportunity.
-3) Select best landmine_indexes (0-based) from the list above (max 3).
-4) Write note_summary (2-4 sentences) suitable for a HubSpot NOTE.
+2) Estimate confidence_score as 0.0-1.0 based on evidence quality.
+3) Write one deal_tip (max 240 chars) tailored to this opportunity.
+4) Propose next_actions (array, max 3 items), each specific and executable by the rep.
+5) Select best landmine_indexes (0-based) from the list above (max 3).
+6) Write note_summary (2-4 sentences) suitable for a HubSpot NOTE.
 
 Output JSON schema:
 {{
   "threat_level": "low|medium|high",
+    "confidence_score": 0.0,
   "deal_tip": "...",
+    "next_actions": ["..."],
   "landmine_indexes": [0, 2, 5],
   "note_summary": "..."
 }}
@@ -152,6 +212,7 @@ Output JSON schema:
         raise GroqError(f"Invalid JSON from Groq: {e}") from e
 
     threat = _ensure_threat(parsed.get("threat_level"))
+    confidence = _ensure_confidence(parsed.get("confidence_score", 0.6))
 
     deal_tip = parsed.get("deal_tip")
     if not isinstance(deal_tip, str) or not deal_tip.strip():
@@ -164,13 +225,16 @@ Output JSON schema:
     note_summary = _clip(note_summary.strip(), 700)
 
     indexes = _ensure_indexes(parsed.get("landmine_indexes", []), max_len=3)
+    actions = _ensure_actions(parsed.get("next_actions", []), max_len=3)
 
     # keep only valid indexes
     indexes = [i for i in indexes if 0 <= i < len(landmine_questions)]
 
     return GroqStrategyResult(
         threat_level=threat,
+        confidence_score=confidence,
         deal_tip=deal_tip,
+        next_actions=actions,
         landmine_indexes=indexes,
         note_summary=note_summary,
     )

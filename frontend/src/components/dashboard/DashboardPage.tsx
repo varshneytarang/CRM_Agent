@@ -253,6 +253,7 @@ export function DashboardPage() {
                 <option value="revenue">Revenue</option>
                 <option value="prospecting">Prospecting</option>
                 <option value="retention">Retention</option>
+                <option value="ci">Competitive Intelligence</option>
               </select>
             </label>
             <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">

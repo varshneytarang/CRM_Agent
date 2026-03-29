@@ -16,6 +16,12 @@ class OpportunityIn(TypedDict, total=False):
     amount: float | int | None
     stage: str | None
     owner: str | None
+    close_date: str | None
+    probability: float | int | None
+    forecast_category: str | None
+    next_step: str | None
+    pipeline: str | None
+    status: str | None
     modified_at: str | None
 
 
@@ -62,6 +68,9 @@ class DealStrategy:
     opportunity_name: str
     detected: list[DetectedCompetitor]
     threat_level: ThreatLevel
+    confidence_score: float
+    primary_objections: list[str]
+    next_actions: list[str]
     deal_tip: str
     battlecards: list[Battlecard]
     suggested_hubspot_note: str

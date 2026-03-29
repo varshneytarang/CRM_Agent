@@ -414,6 +414,77 @@ function pickTextField(raw: Record<string, unknown>, keys: string[]): string | n
   return null;
 }
 
+function asStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeText(item))
+      .filter((item): item is string => Boolean(item));
+  }
+  const single = normalizeText(value);
+  return single ? [single] : [];
+}
+
+function engagementMentionsOpportunity(
+  raw: Record<string, unknown>,
+  opportunityId: string,
+  opportunityName: string
+): boolean {
+  const id = opportunityId.trim();
+  const name = opportunityName.trim().toLowerCase();
+
+  const directIdFields = [
+    raw["opportunity"],
+    raw["opportunity_id"],
+    raw["deal"],
+    raw["deal_id"],
+    raw["related_object_id"],
+  ];
+
+  if (id) {
+    for (const value of directIdFields) {
+      if (normalizeText(value) === id) {
+        return true;
+      }
+    }
+
+    const idCollections = [
+      raw["opportunity_ids"],
+      raw["deal_ids"],
+      raw["related_object_ids"],
+      raw["opportunities"],
+      raw["deals"],
+    ];
+
+    for (const collection of idCollections) {
+      if (asStringArray(collection).includes(id)) {
+        return true;
+      }
+    }
+  }
+
+  if (name) {
+    const textBlob = [
+      normalizeText(raw["subject"]),
+      normalizeText(raw["title"]),
+      normalizeText(raw["name"]),
+      normalizeText(raw["content"]),
+      normalizeText(raw["body"]),
+      normalizeText(raw["description"]),
+      normalizeText(raw["text"]),
+      normalizeText(raw["note"]),
+    ]
+      .filter((part): part is string => Boolean(part))
+      .join(" ")
+      .toLowerCase();
+
+    if (textBlob.includes(name)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 async function fetchMergeOpportunityDetail(params: {
   accountToken: string;
   opportunityId: string;
@@ -580,7 +651,13 @@ analyzeRouter.post("/ci/deal-strategy", requireAuth, async (req: Request, res: R
       end_user_origin_id,
       external_account_id,
       opportunity_id,
+      engagement_limit,
     } = req.body ?? {};
+        const resolvedEngagementLimit =
+          typeof engagement_limit === "number" && Number.isFinite(engagement_limit)
+            ? Math.min(Math.max(10, Math.floor(engagement_limit)), 200)
+            : 80;
+
     const resolvedOriginId = authUser?.userid ?? end_user_origin_id;
 
     if (!resolvedOriginId) {
@@ -616,7 +693,7 @@ analyzeRouter.post("/ci/deal-strategy", requireAuth, async (req: Request, res: R
 
     const [oppDetail, engagementsRaw] = await Promise.all([
       fetchMergeOpportunityDetail({ accountToken, opportunityId: targetOpportunityId }).catch(() => null),
-      fetchMergeEngagements({ accountToken, limit: 50 }).catch(() => []),
+      fetchMergeEngagements({ accountToken, limit: resolvedEngagementLimit }).catch(() => []),
     ]);
 
     const oppObj = (oppDetail ?? {}) as Record<string, unknown>;
@@ -628,6 +705,7 @@ analyzeRouter.post("/ci/deal-strategy", requireAuth, async (req: Request, res: R
       targetOpportunityId;
     const oppDesc =
       pickTextField(oppObj, ["description", "body", "content", "text", "notes"]) ??
+      fallbackDeal?.description ??
       null;
 
     const opportunityPayload = {
@@ -636,16 +714,37 @@ analyzeRouter.post("/ci/deal-strategy", requireAuth, async (req: Request, res: R
       description: oppDesc,
       amount: normalizeNumber(oppObj["amount"]) ?? fallbackDeal?.amount ?? null,
       stage: normalizeText(oppObj["stage"]) ?? fallbackDeal?.stage ?? null,
-      owner: normalizeText(oppObj["owner"]) ?? normalizeText(oppObj["owner_name"]) ?? null,
+      owner:
+        normalizeText(oppObj["owner"]) ??
+        normalizeText(oppObj["owner_name"]) ??
+        fallbackDeal?.owner ??
+        null,
+      close_date: normalizeText(oppObj["close_date"]) ?? fallbackDeal?.close_date ?? null,
+      probability: normalizeNumber(oppObj["probability"]) ?? fallbackDeal?.probability ?? null,
+      forecast_category:
+        normalizeText(oppObj["forecast_category"]) ??
+        normalizeText(oppObj["forecast_category_name"]) ??
+        fallbackDeal?.forecast_category ??
+        null,
+      next_step: normalizeText(oppObj["next_step"]) ?? fallbackDeal?.next_step ?? null,
+      pipeline: normalizeText(oppObj["pipeline"]) ?? fallbackDeal?.pipeline ?? null,
+      status: normalizeText(oppObj["status"]) ?? fallbackDeal?.status ?? null,
       modified_at:
         normalizeText(oppObj["modified_at"]) ??
         normalizeText(oppObj["last_activity_at"]) ??
         normalizeText(oppObj["created_at"]) ??
+        fallbackDeal?.modified_at ??
         fallbackDeal?.last_activity ??
         null,
     };
 
-    const engagementsPayload = engagementsRaw
+    const relatedEngagements = engagementsRaw.filter((raw) =>
+      engagementMentionsOpportunity(raw, targetOpportunityId, oppName)
+    );
+
+    const candidateEngagements = relatedEngagements.length > 0 ? relatedEngagements : engagementsRaw;
+
+    const engagementsPayload = candidateEngagements
       .map((raw) => {
         const subject = pickTextField(raw, ["subject", "title", "name"]) ?? null;
         const content = pickTextField(raw, ["content", "body", "description", "text", "note"]) ?? null;
